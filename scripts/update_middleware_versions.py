@@ -388,16 +388,47 @@ def upsert_daily_row(path: Path, row: list[str]) -> None:
     workbook.save(path)
 
 
+def send_via_wechat(excel_path: Path) -> None:
+    send_script = Path(__file__).resolve().parent / "send_wechat_file.py"
+    if not send_script.exists():
+        print("WeChat send script not found, skipping send step")
+        return
+    import subprocess
+
+    result = subprocess.run(
+        [sys.executable, str(send_script), str(excel_path)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        print(result.stdout.strip() or f"Sent via WeChat: {excel_path}")
+    else:
+        print(result.stderr.strip() or result.stdout.strip() or "WeChat send failed")
+
+
 def main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Update daily middleware version Excel report")
+    parser.add_argument(
+        "--no-send",
+        action="store_true",
+        help="Skip sending the Excel file via WeChat",
+    )
+    args = parser.parse_args()
+
     output_dirs = get_output_dirs()
     today = date.today()
     items = collect_middleware_info()
     row = build_row(today, items)
 
+    primary_excel: Path | None = None
     for output_dir in output_dirs:
         excel_path = output_dir / EXCEL_NAME
         upsert_daily_row(excel_path, row)
         print(f"Updated: {excel_path}")
+        if primary_excel is None:
+            primary_excel = excel_path
 
     print(
         " | ".join(
@@ -410,6 +441,10 @@ def main() -> int:
             ]
         )
     )
+
+    if not args.no_send and primary_excel is not None:
+        send_via_wechat(primary_excel)
+
     return 0
 
 
