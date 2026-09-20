@@ -1,0 +1,102 @@
+app:
+  name: A股2026主线识别系统
+  report_title: A股主线识别日报
+  version: "6.7.0"
+  timezone: Asia/Shanghai
+
+http:
+  timeout_sec: 12
+  retries: 2
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+
+auction:
+  start: "09:15"
+  lock: "09:20"
+  open: "09:30"
+  weights:
+    cancellable: 20
+    locked: 50
+    open_price: 30
+
+scoring:
+  auction:
+    board_change: 20
+    high_open_ratio: 15
+    limit_up: 15
+    leader: 20
+    instant_flow: 15
+    continuity_3d: 10
+    negative_feedback: -15
+  mainline:
+    turnover_share: 25
+    instant_flow: 20
+    continuity: 15
+    leader: 15
+    echelon: 10
+    etf: 10
+    money_effect: 5
+
+pipeline:
+  industry_top_n: 20
+  concept_top_n: 20
+  chain_top_n: 12
+  constituent_boards: 18
+  constituent_limit: 40
+  stock_amount_top_n: 120
+
+data_sources:
+  - priority: 1
+    id: ths_zdfph
+    name: 全A涨跌幅排行
+    url: https://data.10jqka.com.cn/market/zdfph/
+    usage: 全A涨跌幅、强弱股、涨跌分布、竞价/盘中个股表现
+  - priority: 2
+    id: ths_quote_center
+    name: 行情中心
+    url: https://q.10jqka.com.cn/
+    usage: 指数环境、全市场状态、行情入口
+  - priority: 3
+    id: ths_limit_radar
+    name: 涨停雷达
+    url: https://yuanchuang.10jqka.com.cn/mrnxgg_list/
+    usage: 涨停、跌停、连板、涨停原因、题材归因
+  - priority: 4
+    id: ths_concept
+    name: 概念板块
+    url: https://q.10jqka.com.cn/gn/
+    usage: 概念涨跌幅、概念成交额、板块内个股结构
+  - priority: 5
+    id: ths_industry
+    name: 行业板块
+    url: https://q.10jqka.com.cn/thshy/
+    usage: 行业涨跌幅、行业成交额、行业强弱排序
+  - priority: 6
+    id: ths_stock_fund
+    name: 个股实时资金
+    url: https://data.10jqka.com.cn/funds/ggzjl/field/flowin/order/desc/ajax/1/
+    usage: 个股主力净流入、龙头确认、资金攻击强度
+  - priority: 7
+    id: ths_concept_flow
+    name: 概念即时流入
+    url: https://data.10jqka.com.cn/funds/gnzjl/field/je/order/desc/ajax/1/
+    usage: 概念板块即时净流入、开盘/盘中攻击方向
+  - priority: 8
+    id: ths_concept_flow_3d
+    name: 概念3日流入
+    url: https://data.10jqka.com.cn/funds/gnzjl/board/3/field/buy/order/desc/ajax/1/
+    usage: 短线资金连续性、一日游过滤
+  - priority: 9
+    id: ths_concept_flow_5d
+    name: 概念5日流入
+    url: https://data.10jqka.com.cn/funds/gnzjl/board/5/field/buy/order/DESC/ajax/1/
+    usage: 中短期资金趋势、主线持续性、高位拥挤度
+  - priority: 10
+    id: ths_flash
+    name: 7x24消息
+    url: https://news.10jqka.com.cn/app/flash/flashnews/v1/list?seq=0&tagId=62857
+    usage: 只用于异动催化验证，不得作为强弱判断主依据
+
+fallback_sources:
+  eastmoney_delay: https://push2delay.eastmoney.com/
+  eastmoney_zt: https://push2ex.eastmoney.com/getTopicZTPool
+  sina_a_share: https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData
