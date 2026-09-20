@@ -1,0 +1,25 @@
+name: a-share-2026-tests
+
+on:
+  push:
+    paths:
+      - "a-share-2026/**"
+  pull_request:
+    paths:
+      - "a-share-2026/**"
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: a-share-2026
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Test
+        run: pytest
