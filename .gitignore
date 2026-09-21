@@ -9,7 +9,9 @@ venv/
 htmlcov/
 reports/*.html
 reports/*.json
+reports/tdx-import/*
 !reports/.gitkeep
+!reports/tdx-import/.gitkeep
 .DS_Store
 .mypy_cache/
 .ruff_cache/

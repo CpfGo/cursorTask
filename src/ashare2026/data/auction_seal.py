@@ -7,7 +7,13 @@ from typing import Iterable
 
 from ashare2026.config import load_settings
 from ashare2026.constants import DATA_MISSING
-from ashare2026.data.fetchers.tongdaxin import TdxAuctionRow, fetch_jjqc
+from ashare2026.data.fetchers.tongdaxin import (
+    TdxAuctionRow,
+    TdxQuoteExport,
+    fetch_jjqc,
+    load_tdx_quote_exports,
+    resolve_tdx_import_dir,
+)
 from ashare2026.data.fetchers.tushare import TushareAuctionPrint, fetch_stk_auction
 from ashare2026.models.board import BoardQuote
 from ashare2026.models.market import LimitStock, StockQuote
@@ -17,6 +23,8 @@ from ashare2026.timeutil import cn_tz, isoformat_cn, now_cn
 
 SEAL_CLOCKS = ("09:15", "09:20", "09:25")
 OPEN_TURNOVER_CLOCK = "09:25"
+JJQC_SOURCE = "通达信 HQServ JJQC 抢筹委托金额（涨停开盘未匹配买单）"
+TDX_EXPORT_SOURCE = "通达信本地涨停报价列表（封单额列）"
 
 
 def clock_for(moment: datetime) -> str | None:
@@ -90,9 +98,9 @@ def tdx_to_seal_rows(
             AuctionSealRow(
                 name=item.name,
                 code=item.code,
-                board=board_of.get(item.code) or None,
-                industry=industry_of.get(item.code) or None,
-                open_turnover=None,
+                board=item.board or board_of.get(item.code) or None,
+                industry=item.industry or industry_of.get(item.code) or None,
+                open_turnover=item.open_turnover,
                 seal_amount=item.seal_amount,
             )
         )
@@ -101,10 +109,13 @@ def tdx_to_seal_rows(
 
 
 def apply_open_turnover(rows: list[AuctionSealRow], prints: dict[str, TushareAuctionPrint], clock: str) -> None:
-    """stk_auction is the 09:25 matched print. Do not copy it onto 09:15/09:20."""
+    """stk_auction is the 09:25 matched print. Do not copy it onto 09:15/09:20.
+    Do not overwrite 开盘换手Z already taken from a TDX 涨停报价列表 export."""
     if clock != OPEN_TURNOVER_CLOCK:
         return
     for row in rows:
+        if row.open_turnover is not None:
+            continue
         hit = prints.get(row.code)
         if hit and hit.turnover_rate is not None:
             row.open_turnover = hit.turnover_rate
@@ -172,6 +183,38 @@ def _filled(clock: str, rows: list[AuctionSealRow], source: str, note: str) -> A
     )
 
 
+def _persist_clock(
+    store: SealSnapshotStore | None,
+    day: str,
+    clock: str,
+    now: datetime,
+    source: str,
+    rows: list[AuctionSealRow],
+    persist: bool,
+) -> None:
+    if not persist:
+        return
+    store = store or SealSnapshotStore()
+    store.save_clock(
+        day,
+        clock,
+        {
+            "captured_at": isoformat_cn(now),
+            "source": source,
+            "rows": [r.model_dump() for r in rows],
+        },
+    )
+
+
+def _missing_note(clock: str, tdx_note: str) -> str:
+    if clock in ("09:15", "09:20"):
+        return (
+            f"{DATA_MISSING}：{clock} 封单额需该时刻的通达信涨停报价列表导出（文件名/保存时间对应 {clock}）"
+            "或当时 HQServ JJQC 截取；不能用 09:25 或盘中封单回填"
+        )
+    return tdx_note if tdx_note else f"{DATA_MISSING}：无法验证 {clock} 涨停封单额"
+
+
 def build_seal_snapshots(
     *,
     tdx_rows: list[TdxAuctionRow] | None,
@@ -184,6 +227,8 @@ def build_seal_snapshots(
     now: datetime,
     store: SealSnapshotStore | None = None,
     persist: bool = True,
+    import_dir: Path | None = None,
+    tdx_exports: dict[str, TdxQuoteExport] | None = None,
 ) -> list[AuctionSealSnapshot]:
     settings = load_settings()
     min_yuan = settings.auction_report.seal_min_yuan
@@ -201,9 +246,31 @@ def build_seal_snapshots(
     live_clock = clock_for(now)
     live_rows = tdx_to_seal_rows(tdx_rows or [], min_yuan=min_yuan, board_of=board_of, industry_of=industry_of)
     live_ok = tdx_rows is not None and not str(tdx_note).startswith(DATA_MISSING)
+    exports = tdx_exports if tdx_exports is not None else load_tdx_quote_exports(
+        day=day, import_dir=import_dir, now=now
+    )
 
     snapshots: list[AuctionSealSnapshot] = []
     for clock in clocks:
+        exported = exports.get(clock)
+        if exported is not None:
+            rows = tdx_to_seal_rows(
+                exported.rows, min_yuan=min_yuan, board_of=board_of, industry_of=industry_of
+            )
+            apply_open_turnover(rows, prints, clock)
+            source = exported.source or TDX_EXPORT_SOURCE
+            _persist_clock(store, day, clock, exported.captured_at or now, source, rows, persist)
+            note = source
+            if clock == OPEN_TURNOVER_CLOCK:
+                if any(r.open_turnover is not None for r in rows):
+                    note = f"{source}；开盘换手来自通达信开盘换手Z"
+                elif prints:
+                    note = f"{source}；开盘换手来自 {tushare_note}"
+                else:
+                    note = f"{source}；{tushare_note}"
+            snapshots.append(_filled(clock, rows, source, note))
+            continue
+
         use_live = False
         if live_ok and live_clock == clock:
             use_live = True
@@ -214,18 +281,8 @@ def build_seal_snapshots(
         if use_live:
             rows = [r.model_copy(deep=True) for r in live_rows]
             apply_open_turnover(rows, prints, clock)
-            source = "通达信 HQServ JJQC 抢筹委托金额（涨停开盘未匹配买单）"
-            if persist:
-                store = store or SealSnapshotStore()
-                store.save_clock(
-                    day,
-                    clock,
-                    {
-                        "captured_at": isoformat_cn(now),
-                        "source": source,
-                        "rows": [r.model_dump() for r in rows],
-                    },
-                )
+            source = JJQC_SOURCE
+            _persist_clock(store, day, clock, now, source, rows, persist)
             note = source
             if clock == OPEN_TURNOVER_CLOCK:
                 note = f"{source}；开盘换手来自 {tushare_note}" if prints else f"{source}；{tushare_note}"
@@ -240,14 +297,7 @@ def build_seal_snapshots(
             snapshots.append(_filled(clock, rows, source, str(stored.get("captured_at") or source)))
             continue
 
-        if clock in ("09:15", "09:20"):
-            note = (
-                f"{DATA_MISSING}：{clock} 封单额需在该时刻从通达信 HQServ 实时截取；"
-                "不能用 09:25 撮合结果或 Tushare stk_auction.amount 回填"
-            )
-        else:
-            note = tdx_note if tdx_note else f"{DATA_MISSING}：无法验证 {clock} 涨停封单额"
-        snapshots.append(_missing(clock, note))
+        snapshots.append(_missing(clock, _missing_note(clock, tdx_note)))
     return snapshots
 
 
@@ -255,6 +305,7 @@ def capture_seal_snapshot(
     *,
     now: datetime | None = None,
     store: SealSnapshotStore | None = None,
+    import_dir: Path | None = None,
 ) -> Path | None:
     moment = now or now_cn()
     if moment.tzinfo is None:
@@ -262,13 +313,27 @@ def capture_seal_snapshot(
     clock = clock_for(moment)
     if clock is None:
         return None
-    tdx_rows, tdx_note = fetch_jjqc()
+    day = moment.strftime("%Y%m%d")
     settings = load_settings()
     min_yuan = settings.auction_report.seal_min_yuan
-    rows = tdx_to_seal_rows(tdx_rows, min_yuan=min_yuan, board_of={}, industry_of={})
     store = store or SealSnapshotStore()
-    day = moment.strftime("%Y%m%d")
-    source = "通达信 HQServ JJQC 抢筹委托金额（涨停开盘未匹配买单）"
+    exports = load_tdx_quote_exports(day=day, import_dir=import_dir or resolve_tdx_import_dir(), now=moment)
+    exported = exports.get(clock)
+    if exported is not None:
+        rows = tdx_to_seal_rows(exported.rows, min_yuan=min_yuan, board_of={}, industry_of={})
+        source = exported.source or TDX_EXPORT_SOURCE
+        return store.save_clock(
+            day,
+            clock,
+            {
+                "captured_at": isoformat_cn(exported.captured_at),
+                "source": source,
+                "rows": [r.model_dump() for r in rows],
+            },
+        )
+    tdx_rows, tdx_note = fetch_jjqc()
+    rows = tdx_to_seal_rows(tdx_rows, min_yuan=min_yuan, board_of={}, industry_of={})
+    source = JJQC_SOURCE
     if str(tdx_note).startswith(DATA_MISSING) and not rows:
         source = tdx_note
     return store.save_clock(

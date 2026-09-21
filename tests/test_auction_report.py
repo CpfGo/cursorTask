@@ -1,11 +1,19 @@
+import os
 from datetime import datetime, time
 from pathlib import Path
 
 from ashare2026.constants import DATA_MISSING
 from ashare2026.data.auction_seal import SealSnapshotStore, clock_for
-from ashare2026.data.fetchers.tongdaxin import parse_jjqc_datas
+from ashare2026.data.fetchers.tongdaxin import (
+    clock_from_filename,
+    day_from_filename,
+    load_tdx_quote_exports,
+    parse_jjqc_datas,
+    parse_tdx_quote_export,
+    parse_tdx_quote_file,
+)
 from ashare2026.data.fetchers.tushare import TushareAuctionPrint, parse_stk_auction_payload
-from ashare2026.formatting import money_cn
+from ashare2026.formatting import money_cn, parse_cn_money
 from ashare2026.pipeline.auction_report import run_auction_report
 from ashare2026.report.auction_html import REQUIRED_MODULES, render_auction_html
 from ashare2026.report.html import render_html
@@ -24,7 +32,7 @@ from tests.fixtures_data import make_bundle
 
 
 def test_auction_report_modules_present():
-    html = render_auction_html(run_auction_report(make_bundle()))
+    html = render_auction_html(run_auction_report(make_bundle(), persist=False, tdx_exports={}))
     assert html.startswith("<!DOCTYPE html>")
     assert "A股集合竞价报告" in html
     assert "A股主线识别日报" not in html
@@ -36,6 +44,10 @@ def test_auction_report_modules_present():
     assert "09:15 涨停封单额超过1亿" in html
     assert "09:20 涨停封单额超过1亿" in html
     assert "09:25 涨停封单额超过1亿" in html
+    assert "竞价爆量股" not in html
+    assert "成交量爆量股" not in html
+    assert "竞价成交量爆量股" not in html
+    assert 'id="spikes"' not in html
 
 
 def test_daily_report_keeps_availability_section():
@@ -61,23 +73,17 @@ def test_one_word_count_on_strongest_direction():
         assert any(x.code == "300394" for x in result.one_word_stocks)
 
 
-def test_volume_spike_missing_without_ratio():
-    result = run_auction_report(make_bundle())
-    assert result.volume_ratio_available is False
-    assert result.volume_spikes == []
-    html = render_auction_html(result)
-    assert "量比不可用" in html
-
-
-def test_volume_spike_uses_ratio_not_amount():
+def test_no_volume_spike_module_in_auction_html():
     bundle = make_bundle()
     bundle.snapshot.stocks[0].volume_ratio = 9.2
-    bundle.snapshot.stocks[1].volume_ratio = 1.1
-    result = run_auction_report(bundle)
-    assert result.volume_ratio_available is True
-    assert result.volume_spikes
-    assert result.volume_spikes[0].code == bundle.snapshot.stocks[0].code
-    assert all((row.volume_ratio or 0) >= 5 for row in result.volume_spikes)
+    result = run_auction_report(bundle, persist=False, tdx_exports={})
+    html = render_auction_html(result)
+    assert result.volume_spikes == []
+    assert "竞价爆量股" not in html
+    assert "成交量爆量股" not in html
+    assert "量比不可用" not in html
+    assert "竞价最强方向" in html
+    assert "竞价抢筹方向" in html
 
 
 def test_scramble_from_open_and_inflow():
@@ -206,6 +212,8 @@ def test_three_seal_snapshots_and_money_format(tmp_path):
         now=now,
         store=store,
         persist=False,
+        import_dir=tmp_path,
+        tdx_exports={},
     )
     by_clock = {s.clock: s for s in result.seal_snapshots}
     assert set(by_clock) == {"09:15", "09:20", "09:25"}
@@ -252,6 +260,7 @@ def test_tushare_amount_is_not_seal():
             tushare_note="Tushare stk_auction",
             now=datetime(2026, 9, 21, 9, 28, tzinfo=cn_tz()),
             persist=False,
+            tdx_exports={},
         )
     )
     assert "8800万" not in html
@@ -265,3 +274,96 @@ def test_scheduler_stop_does_not_fire():
     sched.stop()
     sched.stop_event.wait(0.2)
     assert fired == []
+
+
+TDX_QUOTE_TSV = (
+    "代码\t名称\t二级行业\t细分行业\t封单额\t涨幅%\t现价\t总金额\t未匹配量\t开盘金额\t开盘换手Z\t买价\t总量\t换手%\t现量\t卖价\n"
+    "600825\t新华传媒\t文化传媒\t出版\t35.8亿\t10.02\t11.31\t3.58亿\t10000\t1.20亿\t2.15\t11.31\t1000\t2.15\t100\t11.31\n"
+    "000607\t华媒控股\t文化传媒\t出版\t3.75亿\t9.95\t4.53\t2972万\t800\t2972万\t1.23\t4.53\t500\t1.23\t50\t4.53\n"
+    "001216\t华瓷股份\t陶瓷\t日用陶瓷\t8500万\t10.01\t12.30\t5000万\t100\t4000万\t0.80\t12.30\t200\t0.80\t20\t12.30\n"
+    "600000\t浦发银行\t银行\t国有大型银行\t2.00亿\t1.00\t10.10\t5.00亿\t0\t5.00亿\t0.10\t10.10\t9\t0.10\t9\t10.10\n"
+)
+
+
+def test_parse_tdx_quote_export_utf8_and_gbk(tmp_path):
+    assert parse_cn_money("35.8亿") == 3.58e9
+    assert parse_cn_money("8500万") == 8.5e7
+    rows = parse_tdx_quote_export(TDX_QUOTE_TSV)
+    by_code = {r.code: r for r in rows}
+    xinhua = by_code["600825"]
+    assert xinhua.name == "新华传媒"
+    assert xinhua.board == "文化传媒"
+    assert xinhua.industry == "出版"
+    assert xinhua.seal_amount == 3.58e9
+    assert xinhua.open_turnover == 2.15
+    assert xinhua.is_limit_up is True
+    assert xinhua.open_amount == 1.2e8
+    assert by_code["001216"].seal_amount == 8.5e7
+    assert by_code["600000"].is_limit_up is False
+    gbk_path = tmp_path / "涨停报价_gbk.txt"
+    gbk_path.write_bytes(TDX_QUOTE_TSV.encode("gbk"))
+    gbk_rows = parse_tdx_quote_file(gbk_path)
+    assert {r.code for r in gbk_rows} == {r.code for r in rows}
+    csv_text = TDX_QUOTE_TSV.replace("\t", ",")
+    csv_rows = parse_tdx_quote_export(csv_text)
+    assert csv_rows[0].seal_amount == 3.58e9
+
+
+def test_tdx_filename_clock_not_confused_with_date():
+    assert clock_from_filename("涨停_20260921_0915.txt") == "09:15"
+    assert clock_from_filename("涨停_20260921_0920.csv") == "09:20"
+    assert clock_from_filename("zt_0925.txt") == "09:25"
+    assert clock_from_filename("涨停_20260915.txt") is None
+    assert day_from_filename("涨停_20260921_0915.txt") == "20260921"
+
+
+def test_tdx_export_fills_matching_clock_only(tmp_path):
+    tz = cn_tz()
+    now = datetime(2026, 9, 21, 9, 26, tzinfo=tz)
+    import_dir = tmp_path / "tdx-import"
+    import_dir.mkdir()
+    (import_dir / "涨停_20260921_0915.txt").write_text(TDX_QUOTE_TSV, encoding="utf-8")
+    (import_dir / "涨停_20260921_0925.txt").write_text(TDX_QUOTE_TSV, encoding="utf-8")
+    result = run_auction_report(
+        make_bundle(),
+        tdx_rows=[],
+        tdx_note="DATA_MISSING：通达信 HQServ JJQC 未返回可解析行",
+        tushare_rows=[],
+        tushare_note="DATA_MISSING：未拉取 Tushare stk_auction",
+        now=now,
+        persist=False,
+        import_dir=import_dir,
+    )
+    by_clock = {s.clock: s for s in result.seal_snapshots}
+    assert by_clock["09:15"].available is True
+    assert by_clock["09:20"].available is False
+    assert by_clock["09:25"].available is True
+    row = next(r for r in by_clock["09:15"].rows if r.code == "600825")
+    assert row.seal_amount == 3.58e9
+    assert row.board == "文化传媒"
+    assert row.industry == "出版"
+    assert row.open_turnover == 2.15
+    assert {r.code for r in by_clock["09:15"].rows} == {"600825", "000607"}
+    html = render_auction_html(result)
+    assert "35.80亿" in html
+    assert "新华传媒" in html
+    assert "竞价爆量股" not in html
+    assert "数据源与可用性" not in html
+    assert "不能用 09:25" in by_clock["09:20"].note or DATA_MISSING in (by_clock["09:20"].note or "")
+
+
+def test_tdx_mtime_clock_and_skip_intraday(tmp_path):
+    tz = cn_tz()
+    import_dir = tmp_path / "tdx-import"
+    import_dir.mkdir()
+    early = import_dir / "quote.txt"
+    late = import_dir / "intraday.txt"
+    early.write_text(TDX_QUOTE_TSV, encoding="utf-8")
+    late.write_text(TDX_QUOTE_TSV, encoding="utf-8")
+    t_0916 = datetime(2026, 9, 21, 9, 16, tzinfo=tz).timestamp()
+    t_1000 = datetime(2026, 9, 21, 10, 0, tzinfo=tz).timestamp()
+    os.utime(early, (t_0916, t_0916))
+    os.utime(late, (t_1000, t_1000))
+    loaded = load_tdx_quote_exports(day="20260921", import_dir=import_dir, now=datetime(2026, 9, 21, 9, 26, tzinfo=tz))
+    assert set(loaded) == {"09:15"}
+    assert loaded["09:15"].clock_from == "mtime"

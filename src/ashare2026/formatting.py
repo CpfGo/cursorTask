@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from ashare2026.constants import DATA_MISSING
+
+_CN_MONEY_RE = re.compile(
+    r"^\s*([+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s*(亿|万|萬)?\s*$"
+)
+_PCT_RE = re.compile(r"^\s*([+-]?(?:\d+(?:\.\d+)?))\s*%?\s*$")
 
 
 def is_missing(value: Any) -> bool:
@@ -16,10 +22,52 @@ def missing_or(value: Any, fallback: str = DATA_MISSING) -> Any:
 def to_float(value: Any) -> float | None:
     if is_missing(value) or value == "-":
         return None
+    if isinstance(value, str):
+        text = value.strip().replace(",", "")
+        if text.endswith("%"):
+            text = text[:-1]
+        try:
+            return float(text)
+        except ValueError:
+            return None
     try:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def parse_cn_money(value: Any) -> float | None:
+    """Parse TDX 封单额 cells: 35.8亿 / 8500万 / raw yuan. None if unparseable."""
+    if value is None or value == "" or value == DATA_MISSING or value == "-":
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    text = str(value).strip().replace(",", "").replace(" ", "")
+    if not text:
+        return None
+    hit = _CN_MONEY_RE.match(text)
+    if not hit:
+        return to_float(text)
+    number = float(hit.group(1).replace(",", ""))
+    unit = hit.group(2)
+    if unit == "亿":
+        return number * 1e8
+    if unit in ("万", "萬"):
+        return number * 1e4
+    return number
+
+
+def parse_pct_number(value: Any) -> float | None:
+    """Parse 10.02 / 10.02% into a percent number (10.02)."""
+    if value is None or value == "" or value == DATA_MISSING or value == "-":
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    text = str(value).strip()
+    hit = _PCT_RE.match(text)
+    if not hit:
+        return to_float(text)
+    return float(hit.group(1))
 
 
 def to_int(value: Any) -> int | None:

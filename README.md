@@ -96,7 +96,7 @@ python -m ashare2026 check
 python -m ashare2026 serve --port 8000
 ```
 
-`serve`（以及 Windows `启动.bat` / 双击 `AShare2026.exe`）会在后台挂上集合竞价定时任务。每个**周一至周五 09:25:30（Asia/Shanghai）**自动生成 `reports/auction-YYYYMMDD.html`。同一进程还会在 **09:15 / 09:20 / 09:25** 截取通达信涨停封单快照，供 09:25:30 报告写入三个时点表格。周六日跳过。仓库**没有内置中国法定节假日日历**；如需休市日不跑，在 `config/settings.yaml` 的 `calendar.holidays` 填 `YYYY-MM-DD`。关闭服务用 `--no-scheduler`：
+`serve`（以及 Windows `启动.bat` / 双击 `AShare2026.exe`）会在后台挂上集合竞价定时任务。每个**周一至周五 09:25:30（Asia/Shanghai）**自动生成 `reports/auction-YYYYMMDD.html`。同一进程还会在 **09:15 / 09:20 / 09:25** 截取涨停封单快照（优先读通达信导出，否则 HQServ JJQC），供 09:25:30 报告写入三个时点表格。周六日跳过。仓库**没有内置中国法定节假日日历**；如需休市日不跑，在 `config/settings.yaml` 的 `calendar.holidays` 填 `YYYY-MM-DD`。关闭服务用 `--no-scheduler`：
 
 ```bash
 python -m ashare2026 serve --port 8000 --no-scheduler
@@ -130,14 +130,15 @@ python -m ashare2026 auction-report -o reports/auction.html
 
 1. **09:15 / 09:20 / 09:25 涨停封单额超过1亿**（Asia/Shanghai）
    - 每个时点给出家数，以及表格：名称、代码、板块、细分行业、开盘换手、封单额
-   - **封单额**只用来自通达信公开 HQServ `JJQC` 的 **抢筹委托金额**，且该股须为涨停开盘。阈值 **> 1亿**。不用开盘金额、抢筹成交金额，也**不用** Tushare `stk_auction.amount` 冒充封单额
-   - 09:15 / 09:20 必须在该时刻截取；09:25 可用早盘 JJQC（09:25 撮合后未匹配买单）。**不会把 09:25 数据抄到 09:15/09:20**
-   - **开盘换手**只在 09:25 使用 Tushare `pro.stk_auction.turnover_rate`（当日数据 **9:26–9:29** 才有）。09:15/09:20 没有可验证的开盘换手时标 `DATA_MISSING`
+   - **封单额**优先用通达信本地客户端「涨停报价列表」导出的 **封单额**列（如 `35.8亿` / `8500万`）。该视图从 09:15 即可看到。二级行业→板块，细分行业→细分行业，开盘换手Z→开盘换手（流通股本竞价换手，不是东方财富 `hs`）
+   - 把 TXT/CSV（GBK 或 UTF-8）放到 `reports/tdx-import/`（或 `config/settings.yaml` 的 `auction_report.tdx_import_dir`）。**文件名或保存时间必须对应那个时点**（如 `涨停_20260921_0915.txt`，或 09:15–09:20 内保存）。**不会把 09:25 / 盘中封单抄到 09:15/09:20**
+   - 没有对应时点的导出时，回退通达信公开 HQServ `JJQC` 的 **抢筹委托金额**（须涨停开盘、金额 **> 1亿**）。不用开盘金额、抢筹成交金额、总金额，也**不用** Tushare `stk_auction.amount` 冒充封单额
+   - 09:15 / 09:20 必须有该时刻的导出或当时截取；09:25 可用早盘 JJQC（09:25 撮合后未匹配买单）
+   - **开盘换手**优先用导出里的 **开盘换手Z**。否则只在 09:25 使用 Tushare `pro.stk_auction.turnover_rate`（当日数据 **9:26–9:29** 才有）
 2. 竞价最强方向（复用 STEP0 评分）
 3. 竞价最弱方向
 4. 竞价最强方向一字板数量（涨停池首次封板 9:25 / `is_one_word`）
 5. 竞价抢筹方向（成分股高开且净流入为正；有量比则量比需达到阈值）
-6. 竞价成交量爆量股（东方财富量比 `f50`；量比缺失时整段 `DATA_MISSING`，不用成交额冒充爆量）
 
 金额字段（封单额、成交额及同类净额）：**≥ 1亿显示为亿**（如 `1.23亿`），**< 1亿显示为万**（如 `8500万`）。
 
@@ -153,7 +154,17 @@ export TUSHARE_TOKEN=你的token
 set TUSHARE_TOKEN=你的token
 ```
 
-未设置 `TUSHARE_TOKEN` 或接口尚未放出当日行时，开盘换手标记 `DATA_MISSING`。
+未设置 `TUSHARE_TOKEN` 或接口尚未放出当日行时，若导出里也没有开盘换手Z，开盘换手标记 `DATA_MISSING`。
+
+### 通达信涨停报价列表导出
+
+在通达信本地「涨停报价列表」把当前表格导出为 TXT 或 CSV，复制到 `reports/tdx-import/`。需要三个时点就导出三次（或文件名带 `0915` / `0920` / `0925`）。列至少包含：代码、名称、封单额；有则使用二级行业、细分行业、开盘换手Z。
+
+```
+reports/tdx-import/涨停报价_20260921_0915.txt
+reports/tdx-import/涨停报价_20260921_0920.txt
+reports/tdx-import/涨停报价_20260921_0925.txt
+```
 
 ## HTML 报告
 
@@ -168,7 +179,7 @@ set TUSHARE_TOKEN=你的token
 pytest
 ```
 
-测试使用夹具行情，不依赖交易时段，覆盖评分分档、一股一链、3 日资金不得编造、HTML 必选章节、集合竞价报告模块（含 09:15/09:20/09:25 封单快照、竞价 HTML 无「数据源与可用性」）、金额亿/万格式、09:25:30 调度钩子、API。
+测试使用夹具行情，不依赖交易时段，覆盖评分分档、一股一链、3 日资金不得编造、HTML 必选章节、集合竞价报告模块（含 09:15/09:20/09:25 封单快照、通达信导出解析、竞价 HTML 无「数据源与可用性」与无「竞价爆量股」）、金额亿/万格式、09:25:30 调度钩子、API。
 
 ## Windows 本机启动（有 Python）
 

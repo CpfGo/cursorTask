@@ -26,6 +26,8 @@ auction_report:
   scramble_volume_ratio: 2.0
   seal_min_yuan: 100000000
   snapshot_clocks: ["09:15", "09:20", "09:25"]
+  # 通达信「涨停报价列表」TXT/CSV 导出目录（相对仓库根，或绝对路径）。文件名/保存时间对应 09:15/09:20/09:25。
+  tdx_import_dir: "reports/tdx-import"
   # 通达信 HQServ 公开 TdxW token（非用户密钥）。Tushare 密钥只用环境变量 TUSHARE_TOKEN。
   tdx_hqserv_url: "http://excalc.icfqs.com:7616/TQLEX?Entry=HQServ.hq_nlp"
   tdx_hqserv_token: "6679f5cadca97d68245a086793fc1bfc0a50b487487c812f"
