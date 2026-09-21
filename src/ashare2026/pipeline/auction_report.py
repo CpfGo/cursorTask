@@ -16,7 +16,6 @@ from ashare2026.models.report import (
     AuctionOneWordRow,
     AuctionScrambleRow,
     AuctionSealRow,
-    AuctionVolumeSpikeRow,
     ReportMeta,
 )
 from ashare2026.pipeline.step0_auction import run_step0
@@ -50,7 +49,6 @@ def run_auction_report(
     boards = list(bundle.concepts) + list(bundle.industries)
     one_word_count, one_word_rows = _strongest_one_word(auction.strongest.board if auction.strongest else None, snapshot, boards)
     scramble, scramble_ok = _scramble_boards(boards, settings.auction_report.scramble_open_pct, settings.auction_report.scramble_volume_ratio)
-    spikes, ratio_ok = _volume_spikes(snapshot, boards, settings.auction_report.volume_ratio_spike)
     availability = build_availability(
         snapshot=snapshot,
         industries=bundle.industries,
@@ -96,8 +94,6 @@ def run_auction_report(
     notes.append("集合竞价报告复用 STEP0 评分；9:15-9:20 与 9:20-9:25 无法拆分时保持 DATA_MISSING")
     notes.append("09:15/09:20/09:25 涨停封单额优先通达信报价列表/HQServ JJQC，再同花顺公开封单，再东方财富 getTopicZTPool fund")
     notes.append("开盘换手优先用通达信开盘换手Z；否则仅在 09:25 使用 Tushare stk_auction.turnover_rate；不用东方财富 hs")
-    if not ratio_ok:
-        notes.append("量比不可用：竞价成交量爆量股标记 DATA_MISSING，不用成交额冒充量比")
     return AuctionDailyReport(
         meta=ReportMeta(
             generated_at=isoformat_cn(moment),
@@ -112,9 +108,8 @@ def run_auction_report(
         one_word_count=one_word_count,
         one_word_stocks=one_word_rows,
         scramble=scramble,
-        volume_spikes=spikes,
         seal_snapshots=seal_snapshots,
-        volume_ratio_available=ratio_ok,
+        volume_ratio_available=False,
         scramble_available=scramble_ok,
         source_notes=notes,
     )
@@ -205,45 +200,4 @@ def _scramble_boards(
         )
     rows.sort(key=lambda r: (r.amount or 0), reverse=True)
     return rows[:20], any_open
-
-
-def _volume_spikes(
-    snapshot: MarketSnapshot,
-    boards: list[BoardQuote],
-    spike_min: float,
-) -> tuple[list[AuctionVolumeSpikeRow], bool]:
-    """Eastmoney 量比 f50. Never invent volume_ratio from 成交额."""
-    stocks = list(snapshot.stocks)
-    for board in boards:
-        stocks.extend(board.constituents)
-    seen: set[str] = set()
-    unique: list[StockQuote] = []
-    for stock in stocks:
-        if not stock.code or stock.code in seen:
-            continue
-        seen.add(stock.code)
-        unique.append(stock)
-    ratio_ok = any(s.volume_ratio is not None for s in unique)
-    if not ratio_ok:
-        return [], False
-    board_of: dict[str, str] = {}
-    for board in boards:
-        for stock in board.constituents:
-            board_of.setdefault(stock.code, board.name)
-    spikes = []
-    for stock in unique:
-        if stock.volume_ratio is None or stock.volume_ratio < spike_min:
-            continue
-        spikes.append(
-            AuctionVolumeSpikeRow(
-                code=stock.code,
-                name=stock.name,
-                volume_ratio=stock.volume_ratio,
-                amount=stock.amount,
-                open_pct=stock.open_pct,
-                board=board_of.get(stock.code) or stock.industry,
-            )
-        )
-    spikes.sort(key=lambda r: (r.volume_ratio or 0, r.amount or 0), reverse=True)
-    return spikes[:30], True
 
