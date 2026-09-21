@@ -51,9 +51,9 @@ def parse_cn_money(value: Any) -> float | None:
     number = float(hit.group(1).replace(",", ""))
     unit = hit.group(2)
     if unit == "亿":
-        return number * 1e8
+        return float(round(number * 1e8))
     if unit in ("万", "萬"):
-        return number * 1e4
+        return float(round(number * 1e4))
     return number
 
 
