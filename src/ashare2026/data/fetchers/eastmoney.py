@@ -153,7 +153,7 @@ class EastmoneyFetcher:
         return boards
 
     def _top_stocks(self) -> list[StockQuote]:
-        fields = "f12,f14,f2,f3,f6,f8,f15,f17,f18,f20,f62"
+        fields = "f12,f14,f2,f3,f5,f6,f8,f15,f17,f18,f20,f50,f62"
         n = self.settings.pipeline.stock_amount_top_n
         rows = self._clist(
             "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81",
@@ -193,6 +193,7 @@ class EastmoneyFetcher:
             amount=to_float(row.get("f6")),
             turnover=to_float(row.get("f8")),
             net_inflow=to_float(row.get("f62")),
+            volume_ratio=to_float(row.get("f50")),
             market_cap=to_float(row.get("f20")),
             high=to_float(row.get("f15")),
             open=open_px,
@@ -274,7 +275,7 @@ class EastmoneyFetcher:
             if not board.code or board.code in seen_codes:
                 continue
             seen_codes.add(board.code)
-            fields = "f12,f14,f2,f3,f6,f8,f17,f18,f20,f62"
+            fields = "f12,f14,f2,f3,f5,f6,f8,f17,f18,f20,f50,f62"
             rows = self._clist(f"b:{board.code}+f:!50", fields, fid="f6", pz=limit)
             stocks = [self._stock_from_row(row) for row in rows]
             for stock in stocks:

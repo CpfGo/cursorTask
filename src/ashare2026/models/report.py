@@ -123,6 +123,50 @@ class FundRoadmap(BaseModel):
     avoiding: str = ""
 
 
+class AuctionOneWordRow(BaseModel):
+    code: str
+    name: str
+    board: str = ""
+    consecutive_boards: int = 0
+    first_board_time: str | None = None
+    change_pct: float | None = None
+
+
+class AuctionScrambleRow(BaseModel):
+    board: str
+    kind: str = ""
+    scramble_count: int = 0
+    amount: float | None = None
+    net_inflow: float | None = None
+    leader: str | None = None
+    change_pct: float | None = None
+    reason: str = ""
+
+
+class AuctionVolumeSpikeRow(BaseModel):
+    code: str
+    name: str
+    volume_ratio: float | None = None
+    amount: float | None = None
+    open_pct: float | None = None
+    board: str | None = None
+
+
+class AuctionDailyReport(BaseModel):
+    meta: ReportMeta
+    availability: list[AvailabilityRow] = Field(default_factory=list)
+    auction: AuctionResult
+    strongest: AuctionBoardScore | None = None
+    weakest: AuctionBoardScore | None = None
+    one_word_count: int | None = None
+    one_word_stocks: list[AuctionOneWordRow] = Field(default_factory=list)
+    scramble: list[AuctionScrambleRow] = Field(default_factory=list)
+    volume_spikes: list[AuctionVolumeSpikeRow] = Field(default_factory=list)
+    volume_ratio_available: bool = False
+    scramble_available: bool = False
+    source_notes: list[str] = Field(default_factory=list)
+
+
 class OneLiner(BaseModel):
     auction_strongest: str = ""
     incremental_chain: str = ""

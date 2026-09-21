@@ -1,16 +1,26 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from ashare2026.config import load_settings
+from ashare2026.paths import user_dir
+from ashare2026.pipeline.auction_report import run_auction_report
 from ashare2026.pipeline.engine import run_pipeline
+from ashare2026.report.auction_html import render_auction_html
 from ashare2026.report.html import render_html
+from ashare2026.schedule.auction_job import AuctionScheduler
+from ashare2026.timeutil import now_cn
 
 _LATEST_HTML = ""
 _LATEST_JSON: dict[str, Any] | None = None
+_LATEST_AUCTION_HTML = ""
+_LATEST_AUCTION_JSON: dict[str, Any] | None = None
+_SCHEDULER: AuctionScheduler | None = None
 
 
 DASHBOARD = """<!DOCTYPE html>
@@ -39,7 +49,9 @@ td,th{border-bottom:1px solid #243142;padding:8px;text-align:left;font-size:13px
   <h1>A股2026主线识别系统</h1>
   <p class="muted">同花顺数据增强 · 集合竞价强弱 · Serenity产业链卡点 · HTML网页报告</p>
   <div class="row">
+    <button id="auction">生成集合竞价报告</button>
     <button id="run">生成今日报告</button>
+    <a class="btn" href="/api/v1/auction-report" target="_blank">打开最新集合竞价报告</a>
     <a class="btn" href="/api/v1/report" target="_blank">打开最新HTML报告</a>
     <button id="check">检查数据可用性</button>
   </div>
@@ -57,6 +69,12 @@ async function check(){
   document.getElementById('avail').innerHTML = `<table><thead><tr><th>数据项</th><th>状态</th><th>来源</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 document.getElementById('check').onclick = check;
+document.getElementById('auction').onclick = async ()=>{
+  document.getElementById('status').textContent = '正在生成集合竞价报告...';
+  const r = await fetch('/api/v1/auction-analyze', {method:'POST'});
+  if(!r.ok){document.getElementById('status').textContent='集合竞价报告生成失败';return;}
+  window.location.href = '/api/v1/auction-report';
+};
 document.getElementById('run').onclick = async ()=>{
   document.getElementById('status').textContent = '正在拉取行情并识别主线...';
   const r = await fetch('/api/v1/analyze', {method:'POST'});
@@ -70,9 +88,22 @@ check();
 """
 
 
-def create_app() -> FastAPI:
+def create_app(*, enable_scheduler: bool = False) -> FastAPI:
     settings = load_settings()
-    app = FastAPI(title=settings.app.name, version=settings.app.version)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        global _SCHEDULER
+        if enable_scheduler:
+            _SCHEDULER = AuctionScheduler(_scheduled_auction)
+            app.state.auction_scheduler = _SCHEDULER
+            _SCHEDULER.start()
+        yield
+        if _SCHEDULER is not None:
+            _SCHEDULER.stop()
+
+    app = FastAPI(title=settings.app.name, version=settings.app.version, lifespan=lifespan)
+    app.state.enable_scheduler = enable_scheduler
 
     @app.get("/", response_class=HTMLResponse)
     def dashboard() -> str:
@@ -116,6 +147,27 @@ def create_app() -> FastAPI:
             _analyze()
         return JSONResponse(_LATEST_JSON or {})
 
+    @app.post("/api/v1/auction-analyze")
+    def auction_analyze() -> JSONResponse:
+        result = _analyze_auction()
+        return JSONResponse({"ok": True, "meta": result.get("meta"), "title": (result.get("meta") or {}).get("title")})
+
+    @app.get("/api/v1/auction-report", response_class=HTMLResponse)
+    def auction_report() -> str:
+        global _LATEST_AUCTION_HTML
+        if not _LATEST_AUCTION_HTML:
+            _analyze_auction()
+        if not _LATEST_AUCTION_HTML:
+            raise HTTPException(500, "auction report unavailable")
+        return _LATEST_AUCTION_HTML
+
+    @app.get("/api/v1/auction-result")
+    def auction_result() -> JSONResponse:
+        global _LATEST_AUCTION_JSON
+        if _LATEST_AUCTION_JSON is None:
+            _analyze_auction()
+        return JSONResponse(_LATEST_AUCTION_JSON or {})
+
     return app
 
 
@@ -127,4 +179,31 @@ def _analyze() -> dict[str, Any]:
     return _LATEST_JSON
 
 
-app = create_app()
+def _analyze_auction() -> dict[str, Any]:
+    global _LATEST_AUCTION_HTML, _LATEST_AUCTION_JSON
+    result = run_auction_report()
+    html = render_auction_html(result)
+    _LATEST_AUCTION_HTML = html
+    _LATEST_AUCTION_JSON = result.model_dump()
+    _write_auction_file(html)
+    return _LATEST_AUCTION_JSON
+
+
+def _scheduled_auction() -> Path:
+    _analyze_auction()
+    return _auction_path()
+
+
+def _auction_path() -> Path:
+    day = now_cn().strftime("%Y%m%d")
+    return user_dir() / "reports" / f"auction-{day}.html"
+
+
+def _write_auction_file(html: str) -> Path:
+    path = _auction_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(html, encoding="utf-8")
+    return path
+
+
+app = create_app(enable_scheduler=False)

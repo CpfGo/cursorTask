@@ -19,6 +19,7 @@ def stock(code, name, pct, amount, inflow, **kwargs) -> StockQuote:
         is_20cm=kwargs.get("is_20cm", code.startswith("300") or code.startswith("688")),
         consecutive_boards=kwargs.get("boards", 0),
         is_one_word=kwargs.get("one_word", False),
+        volume_ratio=kwargs.get("volume_ratio"),
         industry=kwargs.get("industry"),
         concepts=kwargs.get("concepts", []),
         source="fixture",

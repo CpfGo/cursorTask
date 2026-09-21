@@ -27,6 +27,8 @@ src/ashare2026/
   pipeline/step0..step11      规格 STEP0–STEP11
   scoring/                    竞价 100 分、主线加权、赚钱效应 0–5
   report/html.py              单文件深色交易台 HTML
+  report/auction_html.py      集合竞价报告
+  schedule/auction_job.py     交易日 09:25:30 定时任务
   api/app.py                  FastAPI + 控制台 UI
 ```
 
@@ -94,14 +96,41 @@ python -m ashare2026 check
 python -m ashare2026 serve --port 8000
 ```
 
+`serve`（以及 Windows `启动.bat` / 双击 `AShare2026.exe`）会在后台挂上集合竞价定时任务。每个**周一至周五 09:25:30（Asia/Shanghai）**自动生成 `reports/auction-YYYYMMDD.html`。周六日跳过。仓库**没有内置中国法定节假日日历**；如需休市日不跑，在 `config/settings.yaml` 的 `calendar.holidays` 填 `YYYY-MM-DD`。关闭服务用 `--no-scheduler`：
+
+```bash
+python -m ashare2026 serve --port 8000 --no-scheduler
+```
+
+控制台首页在「生成今日报告」**之前**有按钮「生成集合竞价报告」，也可随时手动跑。
+
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/` | 控制台 UI |
 | GET | `/health` | 健康检查 |
 | GET | `/api/v1/availability` | 数据可用性表 |
+| POST | `/api/v1/auction-analyze` | 生成集合竞价报告 |
+| GET | `/api/v1/auction-report` | 最新集合竞价 HTML |
+| GET | `/api/v1/auction-result` | 集合竞价 JSON |
 | POST | `/api/v1/analyze` | 拉取行情并识别主线 |
-| GET | `/api/v1/report` | 最新 HTML 报告 |
-| GET | `/api/v1/result` | JSON 结果 |
+| GET | `/api/v1/report` | 最新 HTML 日报 |
+| GET | `/api/v1/result` | 日报 JSON 结果 |
+
+手动生成集合竞价报告：
+
+```bash
+python -m ashare2026 auction-report -o reports/auction.html
+```
+
+## 集合竞价报告
+
+标题为 **A股集合竞价报告**，与日报相同的深色单文件 HTML，但五个模块独立成文，缺数据标 `DATA_MISSING`、不编造：
+
+1. 竞价最强方向（复用 STEP0 评分）
+2. 竞价最弱方向
+3. 竞价最强方向一字板数量（涨停池首次封板 9:25 / `is_one_word`）
+4. 竞价抢筹方向（成分股高开且净流入为正；有量比则量比需达到阈值）
+5. 竞价成交量爆量股（东方财富量比 `f50`；量比缺失时整段 `DATA_MISSING`，不用成交额冒充爆量）
 
 ## HTML 报告
 
@@ -116,7 +145,7 @@ python -m ashare2026 serve --port 8000
 pytest
 ```
 
-测试使用夹具行情，不依赖交易时段，覆盖评分分档、一股一链、3 日资金不得编造、HTML 必选章节、API。
+测试使用夹具行情，不依赖交易时段，覆盖评分分档、一股一链、3 日资金不得编造、HTML 必选章节、集合竞价报告模块、09:25:30 调度钩子、API。
 
 ## Windows 本机启动（有 Python）
 
@@ -126,7 +155,7 @@ pytest
 2. 若无 `.venv` 则创建
 3. 激活虚拟环境；仅当 `ashare2026` / `tzdata` / `uvicorn` 无法导入时执行 `pip install -e ".[dev]"`
 4. 打开 [http://127.0.0.1:8000](http://127.0.0.1:8000)
-5. 运行 `python -m ashare2026 serve --port 8000`
+5. 运行 `python -m ashare2026 serve --port 8000`（含交易日 09:25:30 集合竞价定时任务）
 
 关掉黑色控制台窗口即停止。控制台使用 UTF-8（`chcp 65001`）。**需要联网**拉取行情。未安装 Python 时请用下面的 `.exe`。
 
@@ -172,6 +201,7 @@ explorer dist\AShare2026
 
 ```bat
 AShare2026.exe serve --port 8000
+AShare2026.exe auction-report -o reports\auction.html
 AShare2026.exe report -o reports\daily.html
 AShare2026.exe check
 ```

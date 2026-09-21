@@ -31,6 +31,18 @@ class AuctionConfig(BaseModel):
     weights: AuctionWeights = AuctionWeights()
 
 
+class AuctionReportConfig(BaseModel):
+    fire_time: str = "09:25:30"
+    title: str = "A股集合竞价报告"
+    volume_ratio_spike: float = 5.0
+    scramble_open_pct: float = 2.0
+    scramble_volume_ratio: float = 2.0
+
+
+class CalendarConfig(BaseModel):
+    holidays: list[str] = Field(default_factory=list)
+
+
 class AuctionScoreWeights(BaseModel):
     board_change: int = 20
     high_open_ratio: int = 15
@@ -90,6 +102,8 @@ class Settings(BaseModel):
     app: AppMeta = AppMeta()
     http: HttpConfig = HttpConfig()
     auction: AuctionConfig = AuctionConfig()
+    auction_report: AuctionReportConfig = AuctionReportConfig()
+    calendar: CalendarConfig = CalendarConfig()
     scoring: ScoringConfig = ScoringConfig()
     pipeline: PipelineConfig = PipelineConfig()
     data_sources: list[DataSourceConfig] = Field(default_factory=list)

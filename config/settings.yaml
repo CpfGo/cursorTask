@@ -18,6 +18,17 @@ auction:
     locked: 50
     open_price: 30
 
+auction_report:
+  fire_time: "09:25:30"
+  title: "A股集合竞价报告"
+  volume_ratio_spike: 5.0
+  scramble_open_pct: 2.0
+  scramble_volume_ratio: 2.0
+
+calendar:
+  # 沪深休市日 YYYY-MM-DD。未填则仅跳过周六日，法定节假日需自行补充。
+  holidays: []
+
 scoring:
   auction:
     board_change: 20

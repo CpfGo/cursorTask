@@ -10,7 +10,7 @@ import webbrowser
 
 import uvicorn
 
-from ashare2026.api.app import app
+from ashare2026.api.app import create_app
 from ashare2026.paths import user_dir
 
 DEFAULT_HOST = "127.0.0.1"
@@ -43,6 +43,7 @@ def launch_console(
     print("A股2026主线识别系统")
     print(f"控制台: {url}")
     print("关闭本窗口即停止服务。生成报告需要联网访问行情源。")
+    print("交易日 09:25:30（上海时间）会自动生成集合竞价报告；也可在控制台手动生成。")
 
     if open_browser:
         def _open() -> None:
@@ -57,5 +58,5 @@ def launch_console(
     if not run_server:
         return 0
 
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    uvicorn.run(create_app(enable_scheduler=True), host=host, port=port, log_level="info")
     return 0

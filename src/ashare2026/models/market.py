@@ -39,6 +39,7 @@ class StockQuote(BaseModel):
     is_20cm: bool = False
     is_new_high: bool | None = None
     limit_reason: str | None = None
+    volume_ratio: float | None = None
     source: str = ""
 
 
