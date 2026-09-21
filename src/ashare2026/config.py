@@ -7,9 +7,15 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
+from ashare2026.paths import resolve_config_path, user_dir
 
-ROOT = Path(__file__).resolve().parents[2]
-CONFIG_PATH = ROOT / "config" / "settings.yaml"
+
+def __getattr__(name: str) -> Path:
+    if name == "ROOT":
+        return user_dir()
+    if name == "CONFIG_PATH":
+        return resolve_config_path()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class AuctionWeights(BaseModel):
@@ -96,7 +102,7 @@ class Settings(BaseModel):
 
 @lru_cache(maxsize=1)
 def load_settings(path: Path | None = None) -> Settings:
-    cfg_path = path or CONFIG_PATH
+    cfg_path = Path(path) if path else resolve_config_path()
     if not cfg_path.exists():
         return Settings()
     raw: dict[str, Any] = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}

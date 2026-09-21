@@ -118,6 +118,47 @@ pytest
 
 测试使用夹具行情，不依赖交易时段，覆盖评分分档、一股一链、3 日资金不得编造、HTML 必选章节、API。
 
+## Windows 可执行文件
+
+无需安装 Python。GitHub Actions 在 `windows-latest` 上用 PyInstaller 打成 **onedir** 目录（`AShare2026.exe` + 依赖文件），产物作为工作流 Artifacts 上传，并在 PR 评论中附下载链接。
+
+### 从 Actions 下载
+
+1. 打开 [GitHub Actions：a-share-2026-tests](https://github.com/CpfGo/cursorTask/actions/workflows/a-share-2026.yml)。
+2. 选中一次成功的运行（含 job **windows-exe**）。
+3. 页面底部 **Artifacts** 下载 `AShare2026-windows`（zip，默认保留 30 天）。
+4. 解压后**整夹保留**，双击 `AShare2026.exe`（不要只拷走这一个文件）。
+5. 浏览器打开 [http://127.0.0.1:8000](http://127.0.0.1:8000)。关掉黑色控制台窗口即停止服务。
+
+也可在对应 Pull Request 的评论里点本次运行链接。
+
+### 本地打包（须在 Windows 上）
+
+```bat
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e ".[pack]"
+pyinstaller ashare2026.spec --noconfirm
+```
+
+产物路径：`dist\AShare2026\AShare2026.exe`。双击后打开 http://127.0.0.1:8000 。
+
+命令行仍可带子命令（与 `python -m ashare2026` 相同）：
+
+```bat
+AShare2026.exe serve --port 8000
+AShare2026.exe report -o reports\daily.html
+AShare2026.exe check
+```
+
+### 限制
+
+- 可执行文件**需要联网**才能拉取同花顺 / 东方财富行情；无网时报告会标 `DATA_MISSING`。
+- 未签名，Windows SmartScreen 或杀毒软件可能拦截，需选择「更多信息 → 仍要运行」。
+- 必须保留解压后的整个目录（`_internal` 等），单独复制 `.exe` 无法启动。
+- Linux / macOS 环境打不出真正的 Windows `.exe`；请用上述 Actions 产物或在 Windows 上本地打包。
+- Artifact 会过期（当前 30 天），过期后重新跑工作流即可。
+
 ## 仓位与免责
 
 仓位只有四种环境判断，不是下单指令。激进/正常/谨慎/防守的触发条件写在报告「仓位判断」中。若实时数据不足，首屏和右侧导航区域会显示：

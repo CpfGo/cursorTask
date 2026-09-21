@@ -27,6 +27,9 @@ dev = [
   "pytest-asyncio>=0.23.0",
   "httpx>=0.27.0",
 ]
+pack = [
+  "pyinstaller>=6.10.0",
+]
 
 [project.scripts]
 ashare2026 = "ashare2026.cli:main"
