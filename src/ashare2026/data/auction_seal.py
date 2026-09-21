@@ -401,10 +401,10 @@ def capture_seal_snapshot(
     exports = load_tdx_quote_exports(day=day, import_dir=import_dir or resolve_tdx_import_dir(), now=moment)
     exported = exports.get(clock)
     if exported is not None:
+        source = exported.source or TDX_EXPORT_SOURCE
         rows = tdx_to_seal_rows(
             exported.rows, min_yuan=min_yuan, board_of={}, industry_of={}, source=source
         )
-        source = exported.source or TDX_EXPORT_SOURCE
         return store.save_clock(
             day,
             clock,

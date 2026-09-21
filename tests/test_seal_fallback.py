@@ -99,7 +99,7 @@ def test_em_fund_is_seal_amount_never_amount_or_hs():
     assert "0.21%" not in html
     assert "getTopicZTPool" in html
     assert "数据源与可用性" not in html
-    assert "竞价爆量股" not in html
+    assert "竞价成交量爆量股" in html
 
 
 def test_em_does_not_fill_0915_or_0920():
@@ -197,6 +197,26 @@ def test_fallback_order_tdx_beats_ths_beats_em():
     snap_ths = {s.clock: s for s in result_ths.seal_snapshots}["09:25"]
     assert snap_ths.rows[0].seal_amount == 1_110_000_000
     assert "同花顺" in snap_ths.source
+    assert "东方财富" not in snap_ths.source
+
+    result_em = run_auction_report(
+        make_bundle(),
+        tdx_rows=[],
+        tdx_note="DATA_MISSING：通达信 HQServ JJQC 未返回可解析行",
+        tushare_rows=[],
+        tushare_note="Tushare stk_auction",
+        now=_now(),
+        persist=False,
+        tdx_exports={},
+        ths_rows=[],
+        ths_note="DATA_MISSING：同花顺公开接口未返回封单额",
+        em_rows=em,
+        em_note=EM_SEAL_SOURCE,
+    )
+    snap_em = {s.clock: s for s in result_em.seal_snapshots}["09:25"]
+    assert snap_em.rows[0].seal_amount == 3_582_000_000
+    assert "东方财富" in snap_em.source
+    assert snap_em.rows[0].open_turnover is None
 
 
 def test_ths_parses_order_amount_not_matched_amount():
@@ -257,7 +277,7 @@ def test_data_missing_only_after_all_sources_fail():
     assert "东方财富" in note
     html = render_auction_html(result)
     assert "数据源与可用性" not in html
-    assert "竞价爆量股" not in html
+    assert "竞价成交量爆量股" in html
     assert html.count("09:15 涨停封单额超过1亿") >= 1
     assert html.count("09:20 涨停封单额超过1亿") >= 1
     assert html.count("09:25 涨停封单额超过1亿") >= 1

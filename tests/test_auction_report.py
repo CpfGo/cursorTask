@@ -44,10 +44,9 @@ def test_auction_report_modules_present():
     assert "09:15 涨停封单额超过1亿" in html
     assert "09:20 涨停封单额超过1亿" in html
     assert "09:25 涨停封单额超过1亿" in html
-    assert "竞价爆量股" not in html
-    assert "成交量爆量股" not in html
-    assert "竞价成交量爆量股" not in html
-    assert 'id="spikes"' not in html
+    assert "竞价成交量爆量股" in html
+    assert 'id="spikes"' in html
+    assert "竞价成交量爆量股" in REQUIRED_MODULES
 
 
 def test_daily_report_keeps_availability_section():
@@ -73,17 +72,30 @@ def test_one_word_count_on_strongest_direction():
         assert any(x.code == "300394" for x in result.one_word_stocks)
 
 
-def test_no_volume_spike_module_in_auction_html():
+def test_volume_spike_missing_without_ratio():
+    result = run_auction_report(make_bundle(), persist=False, tdx_exports={})
+    assert result.volume_ratio_available is False
+    assert result.volume_spikes == []
+    html = render_auction_html(result)
+    assert "竞价成交量爆量股" in html
+    assert "量比不可用" in html
+    assert "数据源与可用性" not in html
+    assert all((s.amount or 0) > 0 for s in make_bundle().snapshot.stocks)
+
+
+def test_volume_spike_uses_ratio_not_amount():
     bundle = make_bundle()
     bundle.snapshot.stocks[0].volume_ratio = 9.2
+    bundle.snapshot.stocks[1].volume_ratio = 1.1
     result = run_auction_report(bundle, persist=False, tdx_exports={})
+    assert result.volume_ratio_available is True
+    assert result.volume_spikes
+    assert result.volume_spikes[0].code == bundle.snapshot.stocks[0].code
+    assert all((row.volume_ratio or 0) >= 5 for row in result.volume_spikes)
     html = render_auction_html(result)
-    assert result.volume_spikes == []
-    assert "竞价爆量股" not in html
-    assert "成交量爆量股" not in html
+    assert "竞价成交量爆量股" in html
     assert "量比不可用" not in html
-    assert "竞价最强方向" in html
-    assert "竞价抢筹方向" in html
+    assert "数据源与可用性" not in html
 
 
 def test_scramble_from_open_and_inflow():
@@ -347,7 +359,7 @@ def test_tdx_export_fills_matching_clock_only(tmp_path):
     html = render_auction_html(result)
     assert "35.80亿" in html
     assert "新华传媒" in html
-    assert "竞价爆量股" not in html
+    assert "竞价成交量爆量股" in html
     assert "数据源与可用性" not in html
     assert "不能用 09:25" in by_clock["09:20"].note or DATA_MISSING in (by_clock["09:20"].note or "")
 

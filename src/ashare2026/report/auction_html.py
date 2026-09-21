@@ -20,6 +20,7 @@ REQUIRED_MODULES = (
     "竞价最弱方向",
     "竞价最强方向一字板数量",
     "竞价抢筹方向",
+    "竞价成交量爆量股",
     "09:15 涨停封单额超过1亿",
     "09:20 涨停封单额超过1亿",
     "09:25 涨停封单额超过1亿",
@@ -37,6 +38,7 @@ def render_auction_html(result: AuctionDailyReport) -> str:
             _weakest(result),
             _one_word(result),
             _scramble(result),
+            _spikes(result),
         ]
     )
     return f"""<!DOCTYPE html>
@@ -45,9 +47,7 @@ def render_auction_html(result: AuctionDailyReport) -> str:
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>{escape(title)}</title>
-<style>{_CSS}
-.hero .cards{{grid-template-columns:repeat(4,1fr)}}
-</style>
+<style>{_CSS}</style>
 </head>
 <body>
 <header class="top">
@@ -87,6 +87,7 @@ def _nav() -> str:
         ("weakest", "竞价最弱方向"),
         ("oneword", "一字板数量"),
         ("scramble", "抢筹方向"),
+        ("spikes", "成交量爆量股"),
     ]
     lis = "".join(f'<a href="#{i}">{escape(n)}</a>' for i, n in items)
     return f'<nav class="sidenav" id="sidenav">{lis}</nav>'
@@ -96,6 +97,11 @@ def _hero(result: AuctionDailyReport) -> str:
     a = result.auction
     count = DATA_MISSING if result.one_word_count is None else str(result.one_word_count)
     scramble = result.scramble[0].board if result.scramble_available and result.scramble else DATA_MISSING
+    spike = (
+        f"{result.volume_spikes[0].name} 量比{fmt_num(result.volume_spikes[0].volume_ratio, 2)}"
+        if result.volume_ratio_available and result.volume_spikes
+        else DATA_MISSING
+    )
     return f"""
 <section id="hero" class="hero">
 <div class="cards">
@@ -103,6 +109,7 @@ def _hero(result: AuctionDailyReport) -> str:
   {_stat("竞价最弱方向", a.weakest.board if a.weakest else DATA_MISSING, "down")}
   {_stat("竞价最强方向一字板数量", count, "")}
   {_stat("竞价抢筹方向", scramble, "gold")}
+  {_stat("竞价成交量爆量股", spike, "")}
 </div>
 </section>
 """
@@ -238,3 +245,29 @@ def _scramble(result: AuctionDailyReport) -> str:
         numeric=[2, 3, 4],
     )
     return _section("scramble", "竞价抢筹方向", table)
+
+
+def _spikes(result: AuctionDailyReport) -> str:
+    if not result.volume_ratio_available:
+        inner = f'<p class="missing-inline">{escape(DATA_MISSING)}：量比不可用，不把成交额冒充爆量</p>'
+        return _section("spikes", "竞价成交量爆量股", inner)
+    if not result.volume_spikes:
+        inner = '<p class="note">量比可用，但没有达到爆量阈值的股票；列表为空不等于编造。</p>'
+        return _section("spikes", "竞价成交量爆量股", inner)
+    rows = [
+        [
+            r.code,
+            r.name,
+            fmt_num(r.volume_ratio, 2),
+            money_cn(r.amount),
+            signed_pct(r.open_pct),
+            r.board or DATA_MISSING,
+        ]
+        for r in result.volume_spikes
+    ]
+    table = _table(
+        ["代码", "名称", "量比", "成交额", "开盘涨跌幅", "板块"],
+        rows,
+        numeric=[2, 3, 4],
+    )
+    return _section("spikes", "竞价成交量爆量股", table)
