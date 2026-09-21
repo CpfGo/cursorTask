@@ -15,6 +15,7 @@ from ashare2026.models.report import (
     AuctionDailyReport,
     AuctionOneWordRow,
     AuctionScrambleRow,
+    AuctionSealRow,
     ReportMeta,
 )
 from ashare2026.pipeline.step0_auction import run_step0
@@ -33,6 +34,11 @@ def run_auction_report(
     persist: bool | None = None,
     import_dir: Path | None = None,
     tdx_exports: dict[str, TdxQuoteExport] | None = None,
+    ths_rows: list[AuctionSealRow] | None = None,
+    ths_note: str | None = None,
+    em_rows: list[AuctionSealRow] | None = None,
+    em_note: str | None = None,
+    fetch_fallbacks: bool | None = None,
 ) -> AuctionDailyReport:
     settings = load_settings()
     live = bundle is None
@@ -78,11 +84,16 @@ def run_auction_report(
         persist=write_store,
         import_dir=import_dir,
         tdx_exports=tdx_exports,
+        ths_rows=ths_rows,
+        ths_note=ths_note or "",
+        em_rows=em_rows,
+        em_note=em_note or "",
+        fetch_fallbacks=fetch_fallbacks if fetch_fallbacks is not None else live,
     )
     notes = list(bundle.notes)
     notes.append("集合竞价报告复用 STEP0 评分；9:15-9:20 与 9:20-9:25 无法拆分时保持 DATA_MISSING")
-    notes.append("09:15/09:20/09:25 涨停封单额优先用通达信涨停报价列表导出的封单额列；无导出时用 HQServ JJQC 抢筹委托金额")
-    notes.append("开盘换手优先用通达信开盘换手Z；否则仅在 09:25 使用 Tushare stk_auction.turnover_rate")
+    notes.append("09:15/09:20/09:25 涨停封单额优先通达信报价列表/HQServ JJQC，再同花顺公开封单，再东方财富 getTopicZTPool fund")
+    notes.append("开盘换手优先用通达信开盘换手Z；否则仅在 09:25 使用 Tushare stk_auction.turnover_rate；不用东方财富 hs")
     return AuctionDailyReport(
         meta=ReportMeta(
             generated_at=isoformat_cn(moment),

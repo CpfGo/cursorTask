@@ -159,6 +159,7 @@ class AuctionSealRow(BaseModel):
     industry: str | None = None
     open_turnover: float | None = None
     seal_amount: float | None = None
+    source: str | None = None
 
 
 class AuctionSealSnapshot(BaseModel):

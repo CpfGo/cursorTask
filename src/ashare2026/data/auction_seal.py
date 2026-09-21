@@ -7,6 +7,8 @@ from typing import Iterable
 
 from ashare2026.config import load_settings
 from ashare2026.constants import DATA_MISSING
+from ashare2026.data.fetchers.em_seal import EM_SEAL_SOURCE, fetch_em_zt_seal, rows_from_limit_fund
+from ashare2026.data.fetchers.ths_seal import THS_SEAL_SOURCE, fetch_ths_seal_rows
 from ashare2026.data.fetchers.tongdaxin import (
     TdxAuctionRow,
     TdxQuoteExport,
@@ -85,6 +87,7 @@ def tdx_to_seal_rows(
     min_yuan: float,
     board_of: dict[str, str],
     industry_of: dict[str, str],
+    source: str = JJQC_SOURCE,
 ) -> list[AuctionSealRow]:
     out: list[AuctionSealRow] = []
     for item in tdx_rows:
@@ -102,6 +105,7 @@ def tdx_to_seal_rows(
                 industry=item.industry or industry_of.get(item.code) or None,
                 open_turnover=item.open_turnover,
                 seal_amount=item.seal_amount,
+                source=source,
             )
         )
     out.sort(key=lambda r: r.seal_amount or 0, reverse=True)
@@ -206,13 +210,31 @@ def _persist_clock(
     )
 
 
-def _missing_note(clock: str, tdx_note: str) -> str:
+def _missing_note(clock: str, tried: list[str]) -> str:
+    tried_txt = "；".join(x for x in tried if x) or "无可用源"
     if clock in ("09:15", "09:20"):
         return (
             f"{DATA_MISSING}：{clock} 封单额需该时刻的通达信涨停报价列表导出（文件名/保存时间对应 {clock}）"
-            "或当时 HQServ JJQC 截取；不能用 09:25 或盘中封单回填"
+            f"或当时 HQServ JJQC 截取（已尝试：{tried_txt}）。"
+            "不能用 09:25/盘中封单、Tushare amount 或公开涨停池回填"
         )
-    return tdx_note if tdx_note else f"{DATA_MISSING}：无法验证 {clock} 涨停封单额"
+    return (
+        f"{DATA_MISSING}：无法验证 {clock} 涨停封单额（已尝试：{tried_txt}）。"
+        "不用成交额/开盘金额/Tushare amount 冒充封单"
+    )
+
+
+def _turnover_note(clock: str, rows: list[AuctionSealRow], source: str, tushare_note: str, prints: dict) -> str:
+    if clock != OPEN_TURNOVER_CLOCK:
+        return source
+    has_tdx_z = any(
+        r.open_turnover is not None and (r.source or "").startswith("通达信本地") for r in rows
+    )
+    if has_tdx_z:
+        return f"{source}；开盘换手来自通达信开盘换手Z"
+    if any(r.open_turnover is not None for r in rows) and prints:
+        return f"{source}；开盘换手来自 {tushare_note}"
+    return f"{source}；{tushare_note}"
 
 
 def build_seal_snapshots(
@@ -229,6 +251,11 @@ def build_seal_snapshots(
     persist: bool = True,
     import_dir: Path | None = None,
     tdx_exports: dict[str, TdxQuoteExport] | None = None,
+    ths_rows: list[AuctionSealRow] | None = None,
+    ths_note: str = "",
+    em_rows: list[AuctionSealRow] | None = None,
+    em_note: str = "",
+    fetch_fallbacks: bool = False,
 ) -> list[AuctionSealSnapshot]:
     settings = load_settings()
     min_yuan = settings.auction_report.seal_min_yuan
@@ -244,32 +271,61 @@ def build_seal_snapshots(
     else:
         persisted = {"clocks": {}}
     live_clock = clock_for(now)
-    live_rows = tdx_to_seal_rows(tdx_rows or [], min_yuan=min_yuan, board_of=board_of, industry_of=industry_of)
+    live_rows = tdx_to_seal_rows(
+        tdx_rows or [], min_yuan=min_yuan, board_of=board_of, industry_of=industry_of, source=JJQC_SOURCE
+    )
     live_ok = tdx_rows is not None and not str(tdx_note).startswith(DATA_MISSING)
     exports = tdx_exports if tdx_exports is not None else load_tdx_quote_exports(
         day=day, import_dir=import_dir, now=now
     )
 
+    ths_cache = ths_rows
+    ths_cache_note = ths_note
+    em_cache = em_rows
+    em_cache_note = em_note
+
+    def load_ths() -> tuple[list[AuctionSealRow], str]:
+        nonlocal ths_cache, ths_cache_note
+        if ths_cache is not None:
+            return ths_cache, ths_cache_note
+        if not fetch_fallbacks:
+            return [], ths_cache_note
+        ths_cache, ths_cache_note = fetch_ths_seal_rows(min_yuan=min_yuan)
+        return ths_cache, ths_cache_note
+
+    def load_em() -> tuple[list[AuctionSealRow], str]:
+        nonlocal em_cache, em_cache_note
+        if em_cache is not None:
+            return em_cache, em_cache_note
+        snapshot_rows = rows_from_limit_fund(
+            limit_up, min_yuan=min_yuan, board_of=board_of, industry_of=industry_of
+        )
+        if snapshot_rows:
+            em_cache, em_cache_note = snapshot_rows, EM_SEAL_SOURCE
+            return em_cache, em_cache_note
+        if not fetch_fallbacks:
+            return [], em_cache_note
+        em_cache, em_cache_note = fetch_em_zt_seal(day, min_yuan=min_yuan)
+        return em_cache, em_cache_note
+
     snapshots: list[AuctionSealSnapshot] = []
     for clock in clocks:
+        tried: list[str] = []
         exported = exports.get(clock)
         if exported is not None:
+            source = exported.source or TDX_EXPORT_SOURCE
             rows = tdx_to_seal_rows(
-                exported.rows, min_yuan=min_yuan, board_of=board_of, industry_of=industry_of
+                exported.rows,
+                min_yuan=min_yuan,
+                board_of=board_of,
+                industry_of=industry_of,
+                source=source,
             )
             apply_open_turnover(rows, prints, clock)
-            source = exported.source or TDX_EXPORT_SOURCE
             _persist_clock(store, day, clock, exported.captured_at or now, source, rows, persist)
-            note = source
-            if clock == OPEN_TURNOVER_CLOCK:
-                if any(r.open_turnover is not None for r in rows):
-                    note = f"{source}；开盘换手来自通达信开盘换手Z"
-                elif prints:
-                    note = f"{source}；开盘换手来自 {tushare_note}"
-                else:
-                    note = f"{source}；{tushare_note}"
-            snapshots.append(_filled(clock, rows, source, note))
+            snapshots.append(_filled(clock, rows, source, _turnover_note(clock, rows, source, tushare_note, prints)))
             continue
+        tried.append(tdx_note or "通达信涨停报价列表无此时点文件")
 
         use_live = False
         if live_ok and live_clock == clock:
@@ -283,11 +339,9 @@ def build_seal_snapshots(
             apply_open_turnover(rows, prints, clock)
             source = JJQC_SOURCE
             _persist_clock(store, day, clock, now, source, rows, persist)
-            note = source
-            if clock == OPEN_TURNOVER_CLOCK:
-                note = f"{source}；开盘换手来自 {tushare_note}" if prints else f"{source}；{tushare_note}"
-            snapshots.append(_filled(clock, rows, source, note))
+            snapshots.append(_filled(clock, rows, source, _turnover_note(clock, rows, source, tushare_note, prints)))
             continue
+        tried.append(tdx_note or "通达信 HQServ JJQC")
 
         stored = (persisted.get("clocks") or {}).get(clock)
         if isinstance(stored, dict) and stored.get("rows") is not None:
@@ -296,8 +350,35 @@ def build_seal_snapshots(
             source = str(stored.get("source") or "已落盘的通达信竞价快照")
             snapshots.append(_filled(clock, rows, source, str(stored.get("captured_at") or source)))
             continue
+        tried.append("无该时点落盘快照")
 
-        snapshots.append(_missing(clock, _missing_note(clock, tdx_note)))
+        # 同花顺 / 东方财富公开涨停封单只填 09:25，避免把盘中封单抄到 09:15/09:20。
+        if clock == "09:25" and is_after_auction_match(now):
+            public_ths, public_ths_note = load_ths()
+            if public_ths:
+                rows = [r.model_copy(deep=True) for r in public_ths]
+                apply_open_turnover(rows, prints, clock)
+                source = public_ths_note or THS_SEAL_SOURCE
+                _persist_clock(store, day, clock, now, source, rows, persist)
+                snapshots.append(_filled(clock, rows, source, _turnover_note(clock, rows, source, tushare_note, prints)))
+                continue
+            if public_ths_note:
+                tried.append(public_ths_note)
+            else:
+                tried.append("同花顺公开接口无封单额字段")
+            public_em, public_em_note = load_em()
+            if public_em:
+                rows = [r.model_copy(deep=True) for r in public_em]
+                apply_open_turnover(rows, prints, clock)
+                source = public_em_note or EM_SEAL_SOURCE
+                _persist_clock(store, day, clock, now, source, rows, persist)
+                snapshots.append(_filled(clock, rows, source, _turnover_note(clock, rows, source, tushare_note, prints)))
+                continue
+            tried.append(public_em_note or "东方财富 getTopicZTPool fund 不可用")
+        else:
+            tried.append("同花顺/东方财富涨停池封单不用于 09:15/09:20")
+
+        snapshots.append(_missing(clock, _missing_note(clock, tried)))
     return snapshots
 
 
@@ -320,7 +401,9 @@ def capture_seal_snapshot(
     exports = load_tdx_quote_exports(day=day, import_dir=import_dir or resolve_tdx_import_dir(), now=moment)
     exported = exports.get(clock)
     if exported is not None:
-        rows = tdx_to_seal_rows(exported.rows, min_yuan=min_yuan, board_of={}, industry_of={})
+        rows = tdx_to_seal_rows(
+            exported.rows, min_yuan=min_yuan, board_of={}, industry_of={}, source=source
+        )
         source = exported.source or TDX_EXPORT_SOURCE
         return store.save_clock(
             day,
@@ -332,10 +415,35 @@ def capture_seal_snapshot(
             },
         )
     tdx_rows, tdx_note = fetch_jjqc()
-    rows = tdx_to_seal_rows(tdx_rows, min_yuan=min_yuan, board_of={}, industry_of={})
+    rows = tdx_to_seal_rows(tdx_rows, min_yuan=min_yuan, board_of={}, industry_of={}, source=JJQC_SOURCE)
     source = JJQC_SOURCE
     if str(tdx_note).startswith(DATA_MISSING) and not rows:
-        source = tdx_note
+        if clock == "09:25":
+            ths_rows, ths_note = fetch_ths_seal_rows(min_yuan=min_yuan)
+            if ths_rows:
+                return store.save_clock(
+                    day,
+                    clock,
+                    {
+                        "captured_at": isoformat_cn(moment),
+                        "source": ths_note or THS_SEAL_SOURCE,
+                        "rows": [r.model_dump() for r in ths_rows],
+                    },
+                )
+            em_rows, em_note = fetch_em_zt_seal(day, min_yuan=min_yuan)
+            if em_rows:
+                return store.save_clock(
+                    day,
+                    clock,
+                    {
+                        "captured_at": isoformat_cn(moment),
+                        "source": em_note or EM_SEAL_SOURCE,
+                        "rows": [r.model_dump() for r in em_rows],
+                    },
+                )
+            source = f"{tdx_note}；{ths_note}；{em_note}"
+        else:
+            source = tdx_note
     return store.save_clock(
         day,
         clock,

@@ -5,7 +5,7 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
-from ashare2026.formatting import to_float, to_int
+from ashare2026.formatting import parse_cn_money, to_float, to_int
 from ashare2026.models.board import BoardQuote
 from ashare2026.models.market import LimitStock
 
@@ -45,6 +45,59 @@ def ajax_url_candidates(url: str) -> list[str]:
         if "/free/1/" not in text:
             add(text.replace("/ajax/1/", "/page/1/ajax/1/free/1/"))
     return out
+
+
+def parse_seal_amount_table(html: str) -> list[dict]:
+    """Parse stock tables that actually have a 封单额 column. Never use 成交额 as 封单."""
+    soup = BeautifulSoup(html, "lxml")
+    out: list[dict] = []
+    for table in soup.find_all("table"):
+        headers = [_norm_header(th.get_text(" ", strip=True)) for th in table.select("thead th")]
+        if not headers:
+            first = table.find("tr")
+            if first:
+                headers = [_norm_header(c.get_text(" ", strip=True)) for c in first.find_all(["th", "td"])]
+        if not any("封单" in h for h in headers):
+            continue
+        body = table.find("tbody") or table
+        for tr in body.find_all("tr"):
+            tds = tr.find_all("td")
+            if len(tds) < 3:
+                continue
+            values = [td.get_text(" ", strip=True) for td in tds]
+            if _looks_header_values(values):
+                continue
+            link = tr.find("a")
+            name = (link.get_text(strip=True) if link else "") or _col(headers, values, "名称", "股票名称")
+            href = (link.get("href") if link else "") or ""
+            code = ""
+            m = STOCKPAGE_RE.search(href) or re.search(r"(\d{6})", href)
+            if m:
+                code = m.group(1)
+            if not code:
+                code = _col(headers, values, "代码", "股票代码")
+            code = re.sub(r"\D", "", code)[-6:]
+            seal_text = _col(headers, values, "封单额", "封单金额", "封单")
+            if not name or not code or not seal_text:
+                continue
+            seal = parse_cn_money(seal_text)
+            if seal is None:
+                continue
+            out.append(
+                {
+                    "code": code,
+                    "name": name,
+                    "board": _col(headers, values, "板块", "二级行业") or None,
+                    "industry": _col(headers, values, "细分行业", "行业") or None,
+                    "seal_amount": seal,
+                }
+            )
+    return out
+
+
+def _looks_header_values(values: list[str]) -> bool:
+    blob = "".join(values)
+    return "名称" in blob and ("代码" in blob or "封单" in blob)
 
 
 def parse_fund_table(html: str, *, kind: str = "concept", horizon: str = "instant") -> list[BoardQuote]:

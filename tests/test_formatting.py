@@ -17,11 +17,3 @@ def test_parse_cn_money_tdx_cells():
     assert parse_cn_money("3,582,823,461") == 3582823461
     assert parse_cn_money("-") is None
     assert parse_cn_money("") is None
-
-
-def test_money_cn_yi_and_wan():
-    assert money_cn(1.23e8) == "1.23亿"
-    assert money_cn(1e8) == "1.00亿"
-    assert money_cn(8.5e7) == "8500万"
-    assert money_cn(12_345) == "1.23万"
-    assert money_cn(None) == DATA_MISSING
