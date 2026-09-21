@@ -118,6 +118,18 @@ pytest
 
 测试使用夹具行情，不依赖交易时段，覆盖评分分档、一股一链、3 日资金不得编造、HTML 必选章节、API。
 
+## Windows 本机启动（有 Python）
+
+已安装 Python 3.11+ 时，双击仓库根目录的 `启动.bat`：
+
+1. 进入脚本所在目录
+2. 若无 `.venv` 则创建
+3. 激活虚拟环境；仅当 `ashare2026` / `tzdata` / `uvicorn` 无法导入时执行 `pip install -e ".[dev]"`
+4. 打开 [http://127.0.0.1:8000](http://127.0.0.1:8000)
+5. 运行 `python -m ashare2026 serve --port 8000`
+
+关掉黑色控制台窗口即停止。控制台使用 UTF-8（`chcp 65001`）。**需要联网**拉取行情。未安装 Python 时请用下面的 `.exe`。
+
 ## Windows 可执行文件
 
 无需安装 Python。GitHub Actions 在 `windows-latest` 上用 PyInstaller 打成 **onedir** 目录（`AShare2026.exe` + 依赖文件），产物作为工作流 Artifacts 上传，并在 PR 评论中附下载链接。
