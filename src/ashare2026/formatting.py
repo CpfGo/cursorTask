@@ -33,6 +33,18 @@ def yi(value: float | None, digits: int = 2) -> str:
     return f"{value / 1e8:.{digits}f}亿"
 
 
+def money_cn(value: float | None, *, yi_digits: int = 2) -> str:
+    """Auction-report money: >=1亿 in 亿, otherwise 万. Never invent a number."""
+    if value is None:
+        return DATA_MISSING
+    if abs(value) >= 1e8:
+        return f"{value / 1e8:.{yi_digits}f}亿"
+    wan = value / 1e4
+    if abs(wan - round(wan)) < 1e-9:
+        return f"{round(wan):.0f}万"
+    return f"{wan:.2f}万"
+
+
 def pct(value: float | None, digits: int = 2) -> str:
     if value is None:
         return DATA_MISSING

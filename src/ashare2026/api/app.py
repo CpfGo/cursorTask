@@ -13,7 +13,7 @@ from ashare2026.pipeline.auction_report import run_auction_report
 from ashare2026.pipeline.engine import run_pipeline
 from ashare2026.report.auction_html import render_auction_html
 from ashare2026.report.html import render_html
-from ashare2026.schedule.auction_job import AuctionScheduler
+from ashare2026.schedule.auction_job import AuctionScheduler, make_capture_scheduler
 from ashare2026.timeutil import now_cn
 
 _LATEST_HTML = ""
@@ -21,6 +21,7 @@ _LATEST_JSON: dict[str, Any] | None = None
 _LATEST_AUCTION_HTML = ""
 _LATEST_AUCTION_JSON: dict[str, Any] | None = None
 _SCHEDULER: AuctionScheduler | None = None
+_CAPTURE_SCHEDULER: AuctionScheduler | None = None
 
 
 DASHBOARD = """<!DOCTYPE html>
@@ -93,14 +94,19 @@ def create_app(*, enable_scheduler: bool = False) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        global _SCHEDULER
+        global _SCHEDULER, _CAPTURE_SCHEDULER
         if enable_scheduler:
             _SCHEDULER = AuctionScheduler(_scheduled_auction)
+            _CAPTURE_SCHEDULER = make_capture_scheduler()
             app.state.auction_scheduler = _SCHEDULER
+            app.state.seal_capture_scheduler = _CAPTURE_SCHEDULER
             _SCHEDULER.start()
+            _CAPTURE_SCHEDULER.start()
         yield
         if _SCHEDULER is not None:
             _SCHEDULER.stop()
+        if _CAPTURE_SCHEDULER is not None:
+            _CAPTURE_SCHEDULER.stop()
 
     app = FastAPI(title=settings.app.name, version=settings.app.version, lifespan=lifespan)
     app.state.enable_scheduler = enable_scheduler

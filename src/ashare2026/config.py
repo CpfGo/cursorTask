@@ -37,6 +37,11 @@ class AuctionReportConfig(BaseModel):
     volume_ratio_spike: float = 5.0
     scramble_open_pct: float = 2.0
     scramble_volume_ratio: float = 2.0
+    seal_min_yuan: float = 100_000_000
+    snapshot_clocks: list[str] = Field(default_factory=lambda: ["09:15", "09:20", "09:25"])
+    tdx_hqserv_url: str = "http://excalc.icfqs.com:7616/TQLEX?Entry=HQServ.hq_nlp"
+    tdx_hqserv_token: str = "6679f5cadca97d68245a086793fc1bfc0a50b487487c812f"
+    tushare_api: str = "http://api.tushare.pro"
 
 
 class CalendarConfig(BaseModel):

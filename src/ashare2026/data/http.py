@@ -70,6 +70,43 @@ class HttpClient:
         except Exception:
             return None
 
+    def post_json(
+        self,
+        url: str,
+        *,
+        json_body: Any,
+        headers: dict[str, str] | None = None,
+        referer: str | None = None,
+    ) -> Any:
+        merged = {
+            "User-Agent": self.user_agent,
+            "Accept": "application/json, */*; q=0.01",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Content-Type": "application/json; charset=UTF-8",
+        }
+        if referer:
+            merged["Referer"] = referer
+        if headers:
+            merged.update(headers)
+        last_exc: Exception | None = None
+        for attempt in range(self.retries + 1):
+            try:
+                client = self._ensure_client()
+                resp = client.post(url, json=json_body, headers=merged)
+                if resp.status_code >= 400:
+                    last_exc = RuntimeError(f"HTTP {resp.status_code}")
+                    continue
+                text = resp.text.strip()
+                if not text:
+                    return None
+                import json
+
+                return json.loads(text)
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                time.sleep(0.4 * (attempt + 1))
+        return None if last_exc else None
+
     def get_text(
         self,
         url: str,

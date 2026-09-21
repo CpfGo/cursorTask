@@ -24,6 +24,12 @@ auction_report:
   volume_ratio_spike: 5.0
   scramble_open_pct: 2.0
   scramble_volume_ratio: 2.0
+  seal_min_yuan: 100000000
+  snapshot_clocks: ["09:15", "09:20", "09:25"]
+  # 通达信 HQServ 公开 TdxW token（非用户密钥）。Tushare 密钥只用环境变量 TUSHARE_TOKEN。
+  tdx_hqserv_url: "http://excalc.icfqs.com:7616/TQLEX?Entry=HQServ.hq_nlp"
+  tdx_hqserv_token: "6679f5cadca97d68245a086793fc1bfc0a50b487487c812f"
+  tushare_api: "http://api.tushare.pro"
 
 calendar:
   # 沪深休市日 YYYY-MM-DD。未填则仅跳过周六日，法定节假日需自行补充。
@@ -111,3 +117,5 @@ fallback_sources:
   eastmoney_delay: https://push2delay.eastmoney.com/
   eastmoney_zt: https://push2ex.eastmoney.com/getTopicZTPool
   sina_a_share: https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData
+  tongdaxin_hqserv: http://excalc.icfqs.com:7616/TQLEX?Entry=HQServ.hq_nlp
+  tushare_pro: http://api.tushare.pro

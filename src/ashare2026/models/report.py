@@ -152,6 +152,24 @@ class AuctionVolumeSpikeRow(BaseModel):
     board: str | None = None
 
 
+class AuctionSealRow(BaseModel):
+    name: str
+    code: str
+    board: str | None = None
+    industry: str | None = None
+    open_turnover: float | None = None
+    seal_amount: float | None = None
+
+
+class AuctionSealSnapshot(BaseModel):
+    clock: str
+    count: int | None = None
+    available: bool = False
+    rows: list[AuctionSealRow] = Field(default_factory=list)
+    source: str = ""
+    note: str = ""
+
+
 class AuctionDailyReport(BaseModel):
     meta: ReportMeta
     availability: list[AvailabilityRow] = Field(default_factory=list)
@@ -162,6 +180,7 @@ class AuctionDailyReport(BaseModel):
     one_word_stocks: list[AuctionOneWordRow] = Field(default_factory=list)
     scramble: list[AuctionScrambleRow] = Field(default_factory=list)
     volume_spikes: list[AuctionVolumeSpikeRow] = Field(default_factory=list)
+    seal_snapshots: list[AuctionSealSnapshot] = Field(default_factory=list)
     volume_ratio_available: bool = False
     scramble_available: bool = False
     source_notes: list[str] = Field(default_factory=list)

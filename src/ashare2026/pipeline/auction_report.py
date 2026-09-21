@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from ashare2026.config import load_settings
+from ashare2026.data.auction_seal import SealSnapshotStore, build_seal_snapshots, load_live_seal_inputs
 from ashare2026.data.availability import build_availability
+from ashare2026.data.fetchers.tongdaxin import TdxAuctionRow
+from ashare2026.data.fetchers.tushare import TushareAuctionPrint
 from ashare2026.data.manager import DataBundle, DataManager
 from ashare2026.models.board import BoardQuote
 from ashare2026.models.market import LimitStock, MarketSnapshot, StockQuote
@@ -16,9 +21,21 @@ from ashare2026.pipeline.step0_auction import run_step0
 from ashare2026.timeutil import isoformat_cn, now_cn
 
 
-def run_auction_report(bundle: DataBundle | None = None) -> AuctionDailyReport:
+def run_auction_report(
+    bundle: DataBundle | None = None,
+    *,
+    tdx_rows: list[TdxAuctionRow] | None = None,
+    tdx_note: str | None = None,
+    tushare_rows: list[TushareAuctionPrint] | None = None,
+    tushare_note: str | None = None,
+    now: datetime | None = None,
+    store: SealSnapshotStore | None = None,
+    persist: bool | None = None,
+) -> AuctionDailyReport:
     settings = load_settings()
+    live = bundle is None
     bundle = bundle or DataManager().fetch()
+    moment = now or now_cn()
     snapshot = bundle.snapshot
     auction = run_step0(snapshot, bundle.industries, bundle.concepts)
     boards = list(bundle.concepts) + list(bundle.industries)
@@ -38,13 +55,36 @@ def run_auction_report(bundle: DataBundle | None = None) -> AuctionDailyReport:
         source_map=bundle.source_map,
         timestamp=bundle.quote_timestamp,
     )
+    if live and tdx_rows is None:
+        fetched_tdx, fetched_tdx_note, fetched_ts, fetched_ts_note = load_live_seal_inputs(moment.strftime("%Y%m%d"))
+        tdx_rows = fetched_tdx
+        tdx_note = tdx_note if tdx_note is not None else fetched_tdx_note
+        tushare_rows = fetched_ts if tushare_rows is None else tushare_rows
+        tushare_note = tushare_note if tushare_note is not None else fetched_ts_note
+    tdx_note = tdx_note or "DATA_MISSING：未拉取通达信 HQServ JJQC"
+    tushare_note = tushare_note or "DATA_MISSING：未拉取 Tushare stk_auction"
+    write_store = persist if persist is not None else live
+    seal_snapshots = build_seal_snapshots(
+        tdx_rows=tdx_rows,
+        tdx_note=tdx_note,
+        tushare_rows=tushare_rows,
+        tushare_note=tushare_note,
+        boards=boards,
+        stocks=list(snapshot.stocks),
+        limit_up=list(snapshot.limit_up),
+        now=moment,
+        store=store,
+        persist=write_store,
+    )
     notes = list(bundle.notes)
     notes.append("集合竞价报告复用 STEP0 评分；9:15-9:20 与 9:20-9:25 无法拆分时保持 DATA_MISSING")
+    notes.append("09:15/09:20/09:25 涨停封单额来自通达信 HQServ JJQC 抢筹委托金额，不用成交额/Tushare amount 冒充")
+    notes.append("开盘换手仅在 09:25 使用 Tushare stk_auction.turnover_rate（9:26–9:29 才有当日成交）")
     if not ratio_ok:
         notes.append("量比不可用：竞价成交量爆量股标记 DATA_MISSING，不用成交额冒充量比")
     return AuctionDailyReport(
         meta=ReportMeta(
-            generated_at=isoformat_cn(now_cn()),
+            generated_at=isoformat_cn(moment),
             quote_timestamp=bundle.quote_timestamp,
             title=settings.auction_report.title,
             version=settings.app.version,
@@ -57,6 +97,7 @@ def run_auction_report(bundle: DataBundle | None = None) -> AuctionDailyReport:
         one_word_stocks=one_word_rows,
         scramble=scramble,
         volume_spikes=spikes,
+        seal_snapshots=seal_snapshots,
         volume_ratio_available=ratio_ok,
         scramble_available=scramble_ok,
         source_notes=notes,

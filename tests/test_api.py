@@ -52,4 +52,6 @@ def test_auction_report_endpoint(monkeypatch):
     assert page.status_code == 200
     assert "A股集合竞价报告" in page.text
     assert "竞价最强方向" in page.text
+    assert "09:15 涨停封单额超过1亿" in page.text
+    assert "数据源与可用性" not in page.text
     assert client.get("/").text.index("生成集合竞价报告") < client.get("/").text.index("生成今日报告")
