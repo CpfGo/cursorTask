@@ -19,6 +19,7 @@ dependencies = [
   "beautifulsoup4>=4.12.0",
   "lxml>=5.2.0",
   "tzdata>=2024.1",
+  "quickjs>=1.19.0",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +37,9 @@ ashare2026 = "ashare2026.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+ashare2026 = ["assets/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

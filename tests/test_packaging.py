@@ -84,3 +84,20 @@ def test_spec_bundles_config_and_onedir():
     assert "COLLECT" in spec
     assert "tzdata" in spec
     assert "uvloop" in spec
+    assert "ths.js" in spec
+    assert "quickjs" in spec
+    assert "python -m PyInstaller" not in spec
+
+
+def test_pack_bat_uses_python_module():
+    raw = Path("打包exe.bat").read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf")
+    text = raw.decode("utf-8-sig")
+    assert "chcp 65001" in text
+    assert 'cd /d "%~dp0"' in text
+    assert 'python -m pip install -e ".[pack]"' in text
+    assert "python -m PyInstaller ashare2026.spec --noconfirm" in text
+    assert "pyinstaller ashare2026.spec" not in text.replace("python -m PyInstaller ashare2026.spec", "")
+    assert r"dist\AShare2026\AShare2026.exe" in text
+    assert "explorer dist\\AShare2026" in text
+    assert "pause" in text.lower()

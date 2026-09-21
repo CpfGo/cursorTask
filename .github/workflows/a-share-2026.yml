@@ -34,7 +34,7 @@ jobs:
           python -m pip install -U pip
           pip install -e ".[pack]"
       - name: Build Windows exe
-        run: pyinstaller ashare2026.spec --noconfirm
+        run: python -m PyInstaller ashare2026.spec --noconfirm
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:

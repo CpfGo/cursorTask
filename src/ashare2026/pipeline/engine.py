@@ -167,37 +167,50 @@ def run_pipeline(bundle: DataBundle | None = None) -> PipelineResult:
 def _attach_continuity(chains: list[ChainBucket], continuity, concepts) -> None:
     by_name = {c.name: c for c in continuity}
     for chain in chains:
-        ranks_i, ranks_5 = [], []
+        ranks_i, ranks_3, ranks_5 = [], [], []
         for board in chain.mapped_boards:
             row = by_name.get(board)
             if not row:
                 continue
             if row.instant_rank:
                 ranks_i.append(row.instant_rank)
+            if row.rank_3d:
+                ranks_3.append(row.rank_3d)
             if row.rank_5d:
                 ranks_5.append(row.rank_5d)
         chain.instant_rank = min(ranks_i) if ranks_i else None
+        chain.rank_3d = min(ranks_3) if ranks_3 else None
         chain.rank_5d = min(ranks_5) if ranks_5 else None
-        chain.rank_3d = None
-        if chain.rank_5d:
-            chain.continuity_5d = f"5日排名{chain.rank_5d}"
-        else:
-            chain.continuity_5d = DATA_MISSING
-        chain.continuity_3d = DATA_MISSING
+        chain.continuity_3d = f"3日排名{chain.rank_3d}" if chain.rank_3d else DATA_MISSING
+        chain.continuity_5d = f"5日排名{chain.rank_5d}" if chain.rank_5d else DATA_MISSING
 
 
 def _continuity_scores(chains: list[ChainBucket]) -> dict[str, float]:
     out: dict[str, float] = {}
     for chain in chains:
         score = 0.0
-        if chain.instant_rank and chain.instant_rank <= 10:
-            score += 50
-        elif chain.instant_rank and chain.instant_rank <= 20:
-            score += 35
-        if chain.rank_5d and chain.rank_5d <= 10:
-            score += 50
-        elif chain.rank_5d and chain.rank_5d <= 20:
-            score += 35
+        if chain.rank_3d:
+            if chain.instant_rank and chain.instant_rank <= 10:
+                score += 40
+            elif chain.instant_rank and chain.instant_rank <= 20:
+                score += 28
+            if chain.rank_3d <= 10:
+                score += 30
+            elif chain.rank_3d <= 20:
+                score += 20
+            if chain.rank_5d and chain.rank_5d <= 10:
+                score += 30
+            elif chain.rank_5d and chain.rank_5d <= 20:
+                score += 20
+        else:
+            if chain.instant_rank and chain.instant_rank <= 10:
+                score += 50
+            elif chain.instant_rank and chain.instant_rank <= 20:
+                score += 35
+            if chain.rank_5d and chain.rank_5d <= 10:
+                score += 50
+            elif chain.rank_5d and chain.rank_5d <= 20:
+                score += 35
         out[chain.name] = min(100, score)
     return out
 
@@ -216,6 +229,10 @@ def _cards(scores, cycles, scarcity, leaders, mids, follows, falsify, chains) ->
         mid = "、".join(x.name for x in mids if x.chain == item.chain) or DATA_MISSING
         fol = "、".join(x.name for x in follows if x.chain == item.chain) or DATA_MISSING
         fal = next((c for c in falsify if c.chain == item.chain), None)
+        c3 = chain.continuity_3d if chain else DATA_MISSING
+        c5 = chain.continuity_5d if chain else DATA_MISSING
+        if not c3 or c3 == DATA_MISSING:
+            c3 = f"3日{DATA_MISSING}"
         cards.append(
             MainlineCard(
                 chain=item.chain,
@@ -223,7 +240,7 @@ def _cards(scores, cycles, scarcity, leaders, mids, follows, falsify, chains) ->
                 fund_stage=cycle.fund_stage if cycle else DATA_MISSING,
                 scarce_link=scarce.scarce_link if scarce else DATA_MISSING,
                 instant_flow=yi(chain.net_inflow) if chain else DATA_MISSING,
-                continuity=f"3日{DATA_MISSING}；{chain.continuity_5d if chain else DATA_MISSING}",
+                continuity=f"{c3}；{c5}",
                 leader=lead.name if lead else DATA_MISSING,
                 mids=mid,
                 follows=fol,

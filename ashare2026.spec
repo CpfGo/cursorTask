@@ -9,6 +9,7 @@ ROOT = Path(SPECPATH)
 
 datas = [
     (str(ROOT / "config" / "settings.yaml"), "config"),
+    (str(ROOT / "src" / "ashare2026" / "assets" / "ths.js"), "ashare2026/assets"),
 ]
 binaries = []
 hiddenimports = collect_submodules("ashare2026")
@@ -48,6 +49,7 @@ for pkg in (
     "lxml",
     "bs4",
     "websockets",
+    "quickjs",
 ):
     try:
         pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)

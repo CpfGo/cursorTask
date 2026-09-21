@@ -69,32 +69,46 @@ class DataManager:
                 notes.append("指数补充字段来自东方财富（开盘涨跌幅/成交额交叉校验）")
 
         if ths.industries:
-            industries = ths.industries
-            source_map["industry"] = "同花顺行业板块"
+            if em.industries:
+                industries = _overlay_ths_flow(em.industries, ths.industries)
+                source_map["industry"] = "东方财富行业成交额 + 同花顺行业资金"
+            else:
+                industries = ths.industries
+                source_map["industry"] = "同花顺行业板块"
         elif em.industries:
             industries = em.industries
             source_map["industry"] = "东方财富行业板块（同花顺不可用，已切换）"
             notes.append("行业板块：同花顺接口不可用，已使用东方财富并标注来源")
 
         if ths.concepts:
-            concepts = ths.concepts
-            source_map["concept"] = "同花顺概念板块"
-            source_map["concept_flow"] = "同花顺概念即时流入"
+            if em.concepts:
+                concepts = _overlay_ths_flow(em.concepts, ths.concepts)
+                source_map["concept"] = "东方财富概念成交额 + 同花顺概念资金"
+            else:
+                concepts = ths.concepts
+                source_map["concept"] = "同花顺概念板块"
+            if any(b.net_inflow is not None for b in ths.concepts):
+                source_map["concept_flow"] = "同花顺概念即时流入"
+            elif em.concepts:
+                source_map["concept_flow"] = "东方财富概念主力净流入（同花顺即时流入未解析到行）"
         elif em.concepts:
             concepts = em.concepts
             source_map["concept"] = "东方财富概念板块（同花顺不可用，已切换）"
             source_map["concept_flow"] = "东方财富概念主力净流入（同花顺不可用，已切换）"
             notes.append("概念板块/资金流：同花顺接口不可用，已使用东方财富并标注来源")
 
-        if ths.snapshot.limit_up:
+        if em.snapshot.limit_up or em.snapshot.limit_up_count is not None:
+            snapshot.limit_up = em.snapshot.limit_up
+            snapshot.limit_down = em.snapshot.limit_down
+            source_map["limits"] = "东方财富涨停池"
+            if ths.snapshot.limit_up:
+                notes.append("涨停/连板以东方财富涨停池为准，涨停原因叠加同花顺雷达/复盘原文")
+            else:
+                notes.append("涨停/连板：同花顺涨停雷达未提供完整池，已使用东方财富涨停池")
+        elif ths.snapshot.limit_up:
             snapshot.limit_up = ths.snapshot.limit_up
             snapshot.limit_down = ths.snapshot.limit_down
             source_map["limits"] = "同花顺涨停雷达"
-        elif em.snapshot.limit_up or em.snapshot.limit_up_count is not None:
-            snapshot.limit_up = em.snapshot.limit_up
-            snapshot.limit_down = em.snapshot.limit_down
-            source_map["limits"] = "东方财富涨停池（同花顺涨停雷达不可用，已切换）"
-            notes.append("涨停/连板：同花顺涨停雷达不可用，已使用东方财富涨停池")
 
         snapshot.stocks = ths.snapshot.stocks or em.snapshot.stocks
         if ths.snapshot.stocks:
@@ -118,16 +132,19 @@ class DataManager:
         snapshot.consecutive_count = _first(ths.snapshot.consecutive_count, em.snapshot.consecutive_count)
         snapshot.cm20_count = _first(ths.snapshot.cm20_count, em.snapshot.cm20_count)
         snapshot.source_notes = notes
+        _apply_limit_reasons(snapshot, ths.snapshot.limit_up)
 
         if any(s.net_inflow is not None for s in snapshot.stocks):
             source_map["stock_fund"] = source_map.get("quotes", "东方财富个股主力净流入")
 
-        flow_3d_ok = bool(ths.flow_3d_ok)
-        flow_5d_ok = bool(ths.flow_5d_ok or em.flow_5d_ok)
-        if em.flow_5d_ok and not ths.flow_5d_ok:
-            source_map["flow_5d"] = "东方财富概念5日主力净流入（同花顺不可用，已切换）"
+        flow_3d_ok = bool(ths.flow_3d_ok) or any(b.net_inflow_3d is not None for b in concepts)
+        flow_5d_ok = bool(ths.flow_5d_ok or em.flow_5d_ok) or any(
+            b.net_inflow_5d is not None for b in concepts
+        )
         if ths.flow_5d_ok:
             source_map["flow_5d"] = "同花顺概念5日流入"
+        elif em.flow_5d_ok:
+            source_map["flow_5d"] = "东方财富概念5日主力净流入（同花顺不可用，已切换）"
         if flow_3d_ok:
             source_map["flow_3d"] = "同花顺概念3日流入"
 
@@ -139,7 +156,10 @@ class DataManager:
 
         reasons_ok = any(x.reason for x in snapshot.limit_up)
         if reasons_ok:
-            source_map["limit_reason"] = "涨停原因"
+            if any(x.reason for x in ths.snapshot.limit_up):
+                source_map["limit_reason"] = "同花顺涨停雷达/复盘原文"
+            else:
+                source_map["limit_reason"] = "涨停原因"
 
         new_high_ok = any(s.is_new_high is not None for s in snapshot.stocks)
         if new_high_ok:
@@ -173,3 +193,41 @@ def _first(*values):
         if v is not None:
             return v
     return None
+
+
+def _overlay_ths_flow(base: list[BoardQuote], extra: list[BoardQuote]) -> list[BoardQuote]:
+    if not extra:
+        return base
+    by_name = {b.name: b for b in extra}
+    seen = {b.name for b in base}
+    for board in base:
+        hit = by_name.get(board.name)
+        if hit is None:
+            continue
+        if hit.net_inflow is not None:
+            board.net_inflow = hit.net_inflow
+            if hit.main_buy is not None:
+                board.main_buy = hit.main_buy
+            if hit.main_sell is not None:
+                board.main_sell = hit.main_sell
+        if hit.net_inflow_3d is not None:
+            board.net_inflow_3d = hit.net_inflow_3d
+        if hit.net_inflow_5d is not None:
+            board.net_inflow_5d = hit.net_inflow_5d
+    for hit in extra:
+        if hit.name not in seen:
+            base.append(hit)
+            seen.add(hit.name)
+    return base
+
+
+def _apply_limit_reasons(snapshot: MarketSnapshot, ths_limits: list) -> None:
+    reason_map = {x.code: x.reason for x in ths_limits if getattr(x, "reason", None)}
+    if not reason_map:
+        return
+    for item in snapshot.limit_up:
+        if not item.reason and item.code in reason_map:
+            item.reason = reason_map[item.code]
+    for stock in snapshot.stocks:
+        if not stock.limit_reason and stock.code in reason_map:
+            stock.limit_reason = reason_map[stock.code]

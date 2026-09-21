@@ -25,10 +25,33 @@ def test_three_day_not_invented():
     assert any(DATA_MISSING in (c.continuity_3d or "") for c in result.chains)
 
 
+def test_three_day_rank_when_present():
+    bundle = make_bundle()
+    bundle.flow_3d_ok = True
+    for i, board in enumerate(bundle.concepts):
+        board.net_inflow_3d = (len(bundle.concepts) - i) * 1e9
+    result = run_pipeline(bundle)
+    ranked = [row for row in result.continuity if row.rank_3d is not None]
+    assert ranked
+    assert ranked[0].name == bundle.concepts[0].name
+    assert any(c.rank_3d == 1 for c in result.chains)
+
+
 def test_limit_reason_marked_missing():
     result = run_pipeline(make_bundle())
     reason = next(r for r in result.availability if r.item == "涨停原因")
     assert reason.available is False
+
+
+def test_limit_reason_available_when_present():
+    bundle = make_bundle()
+    bundle.snapshot.limit_up[0].reason = "光模块"
+    bundle.reasons_ok = True
+    bundle.source_map["limit_reason"] = "同花顺涨停雷达/复盘原文"
+    result = run_pipeline(bundle)
+    reason = next(r for r in result.availability if r.item == "涨停原因")
+    assert reason.available is True
+    assert "同花顺" in (reason.actual_source or "")
 
 
 def test_open_environment_four_choices():

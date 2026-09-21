@@ -34,7 +34,14 @@ def run_step0(snapshot: MarketSnapshot, industries: list[BoardQuote], concepts: 
             continuity_score=continuity_score,
             penalty=penalty,
         )
-        item.continuity = DATA_MISSING if board.net_inflow_5d is None else "5日资金可用，3日 DATA_MISSING"
+        if board.net_inflow_3d is not None and board.net_inflow_5d is not None:
+            item.continuity = "3日/5日资金可用"
+        elif board.net_inflow_3d is not None:
+            item.continuity = "3日资金可用，5日 DATA_MISSING"
+        elif board.net_inflow_5d is not None:
+            item.continuity = "5日资金可用，3日 DATA_MISSING"
+        else:
+            item.continuity = DATA_MISSING
         item.reason = (
             f"涨幅{board.change_pct}% / 高开占比{high_ratio} / 涨停{limit_n} "
             f"一字{one_word} / 资金{board.net_inflow}"

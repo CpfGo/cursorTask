@@ -38,6 +38,7 @@ def board(code, name, kind, pct, amount, inflow, members, **kwargs) -> BoardQuot
         leader_code=members[0].code if members else None,
         leader_change_pct=members[0].change_pct if members else None,
         net_inflow=inflow,
+        net_inflow_3d=kwargs.get("flow3"),
         net_inflow_5d=kwargs.get("flow5", inflow * 2),
         main_buy=abs(inflow) * 1.6 if inflow else None,
         main_sell=(abs(inflow) * 1.6 - inflow) if inflow else None,

@@ -255,7 +255,7 @@ class EastmoneyFetcher:
                     consecutive_boards=lbc,
                     first_board_time=str(fbt) if fbt is not None else None,
                     industry=str(row.get("hybk") or "") or None,
-                    reason=None,
+                    reason=_limit_reason_text(row),
                     fund=to_float(row.get("fund")),
                     is_one_word=one_word,
                     is_20cm=_is_20cm(code) or (zdp is not None and zdp >= 15),
@@ -339,3 +339,25 @@ def _code_only(value) -> str | None:
     text = str(value or "")
     m = re.search(r"(\d{6})", text)
     return m.group(1) if m else None
+
+
+def _limit_reason_text(row: dict) -> str | None:
+    """Use only CJK reason fields. Never treat hybk/行业 as 涨停原因."""
+    for key in ("reason", "ztyy", "expl", "desc"):
+        reason = _cjk_reason(row.get(key))
+        if reason:
+            return reason
+    return None
+
+
+def _cjk_reason(value) -> str | None:
+    if value is None or isinstance(value, (int, float, dict, list, bool)):
+        return None
+    text = str(value).strip()
+    if not text or text in {"-", "--", "None", "0"}:
+        return None
+    if re.fullmatch(r"[\d.]+", text):
+        return None
+    if re.search(r"[\u4e00-\u9fff]", text) and 1 < len(text) <= 40:
+        return text
+    return None

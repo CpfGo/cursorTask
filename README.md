@@ -62,7 +62,7 @@ src/ashare2026/
 9. 概念 5 日流入
 10. 7x24 消息（只验证催化，不作为强弱主依据）
 
-同花顺网页接口若返回 401/403，系统会改用东方财富 delay 行情、涨停池等备用源，并在报告「数据源与可用性」中写明实际来源。当前环境中同花顺指数 `d.10jqka.com.cn` 与 7x24 消息通常可用，板块资金榜常被拦截；**概念 3 日流入在同花顺不可用时标记 `DATA_MISSING`，不会用 5 日数据冒充 3 日。**
+同花顺网页接口若返回 401/403，系统会改用东方财富 delay 行情、涨停池等备用源，并在报告「数据源与可用性」中写明实际来源。概念 3 日 / 5 日资金按浏览器方式拉取同花顺 `gnzjl` 资金表（先打开父页、带 `hexin-v`、`Referer`、`X-Requested-With`，并尝试 `/free/1/`），解析真实表格行；**解析不到行时标记 `DATA_MISSING`，不会用 5 日数据冒充 3 日，也不会编造净额。** 涨停原因只采用涨停雷达/复盘原文中出现的股票与题材，不用行业字段冒充。
 
 ## 安装
 
@@ -146,14 +146,27 @@ pytest
 
 ### 本地打包（须在 Windows 上）
 
-```bat
-python -m venv .venv
-.venv\Scripts\activate
-pip install -e ".[pack]"
-pyinstaller ashare2026.spec --noconfirm
-```
+已安装 Python 3.11+ 时，双击仓库根目录的 `打包exe.bat`：
 
-产物路径：`dist\AShare2026\AShare2026.exe`。双击后打开 http://127.0.0.1:8000 。
+1. 进入脚本所在目录，控制台使用 UTF-8（`chcp 65001`）
+2. 若无 `.venv` 则创建并激活
+3. `python -m pip install -e ".[pack]"`
+4. `python -m PyInstaller ashare2026.spec --noconfirm`（用 `python -m`，不要用未加入 PATH 的裸 `pyinstaller` 命令）
+5. 成功后打印 `dist\AShare2026\AShare2026.exe`，并打开 `dist\AShare2026` 文件夹
+
+关掉黑色控制台窗口前会 `pause`。产物路径：`dist\AShare2026\AShare2026.exe`。双击 exe 后打开 http://127.0.0.1:8000 。
+
+等价的手动命令：
+
+```bat
+cd /d 本仓库根目录
+chcp 65001
+python -m venv .venv
+call .venv\Scripts\activate.bat
+python -m pip install -e ".[pack]"
+python -m PyInstaller ashare2026.spec --noconfirm
+explorer dist\AShare2026
+```
 
 命令行仍可带子命令（与 `python -m ashare2026` 相同）：
 

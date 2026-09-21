@@ -17,6 +17,7 @@ class BoardQuote(BaseModel):
     leader_code: str | None = None
     leader_change_pct: float | None = None
     net_inflow: float | None = None
+    net_inflow_3d: float | None = None
     net_inflow_5d: float | None = None
     net_inflow_10d: float | None = None
     main_buy: float | None = None
