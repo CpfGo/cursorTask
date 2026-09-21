@@ -1,14 +1,36 @@
 from __future__ import annotations
 
-from datetime import datetime, time
-from zoneinfo import ZoneInfo
+from datetime import datetime, time, timedelta, timezone, tzinfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ashare2026.config import load_settings
 
+# China Standard Time offset used when the IANA database is unavailable
+# (typical on Windows without the `tzdata` package).
+CN_OFFSET = timezone(timedelta(hours=8), "UTC+8")
+
+
+def _local_tz() -> tzinfo | None:
+    return datetime.now().astimezone().tzinfo
+
+
+def cn_tz() -> tzinfo:
+    name = load_settings().timezone
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, OSError, ModuleNotFoundError, KeyError, ValueError):
+        local = None
+        try:
+            local = _local_tz()
+        except Exception:
+            local = None
+        if local is not None:
+            return local
+        return CN_OFFSET
+
 
 def now_cn() -> datetime:
-    tz = ZoneInfo(load_settings().timezone)
-    return datetime.now(tz)
+    return datetime.now(cn_tz())
 
 
 def parse_hhmm(value: str) -> time:
@@ -40,5 +62,5 @@ def is_weekday(moment: datetime | None = None) -> bool:
 def isoformat_cn(moment: datetime | None = None) -> str:
     moment = moment or now_cn()
     if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=ZoneInfo(load_settings().timezone))
+        moment = moment.replace(tzinfo=cn_tz())
     return moment.strftime("%Y-%m-%d %H:%M:%S %Z")
