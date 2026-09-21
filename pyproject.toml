@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ashare2026"
+version = "6.7.0"
+description = "A股2026主线识别系统：同花顺优先 + 集合竞价强弱 + Serenity产业链卡点 + HTML网页报告"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "A-share 2026" }]
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
+  "httpx>=0.27.0",
+  "pydantic>=2.7.0",
+  "pydantic-settings>=2.3.0",
+  "PyYAML>=6.0.1",
+  "beautifulsoup4>=4.12.0",
+  "lxml>=5.2.0",
+  "tzdata>=2024.1",
+  "quickjs>=1.19.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2.0",
+  "pytest-asyncio>=0.23.0",
+  "httpx>=0.27.0",
+]
+pack = [
+  "pyinstaller>=6.10.0",
+]
+
+[project.scripts]
+ashare2026 = "ashare2026.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ashare2026 = ["assets/*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
